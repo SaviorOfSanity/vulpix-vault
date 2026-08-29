@@ -18,6 +18,7 @@ from db_utils import (
     delete_card_from_collection,
     delete_from_sniper_watchlist,
     generate_ebay_search_url,
+    get_card_aggregator_links,
     get_csv_template_bytes,
     get_db_path,
     get_master_set_metrics,
@@ -625,8 +626,17 @@ with tab_master_set:
                                 st.success("Image reset to Card Back placeholder!")
                                 st.rerun()
 
-                        if pc_url and str(pc_url).startswith("http"):
-                            st.markdown(f'<a href="{pc_url}" target="_blank" class="btn-pc" style="display:block; text-align:center; padding: 6px 12px; font-size:0.82rem; margin-top:8px; text-decoration:none;">📊 View PriceCharting History ↗</a>', unsafe_allow_html=True)
+                        # Multi-Database Discovery & Verification Links
+                        aggr_links = get_card_aggregator_links(row["card_name"], row["set_name"], row["card_number"])
+                        st.markdown("---")
+                        st.markdown("**🌐 External Card Data & Scans:**")
+                        c_a1, c_a2 = st.columns(2)
+                        with c_a1:
+                            st.markdown(f'<a href="{aggr_links["pricecharting"]}" target="_blank" class="btn-pc" style="display:block; text-align:center; padding: 5px; font-size:0.75rem; text-decoration:none; margin-bottom:6px;">📊 PriceCharting</a>', unsafe_allow_html=True)
+                            st.markdown(f'<a href="{aggr_links["tcgcollector"]}" target="_blank" class="btn-ebay" style="display:block; text-align:center; padding: 5px; font-size:0.75rem; text-decoration:none; background:#0ea5e9;">🎴 TCGCollector</a>', unsafe_allow_html=True)
+                        with c_a2:
+                            st.markdown(f'<a href="{aggr_links["pokecardex"]}" target="_blank" class="btn-ebay" style="display:block; text-align:center; padding: 5px; font-size:0.75rem; text-decoration:none; margin-bottom:6px; background:#4b5563;">📖 Pokecardex</a>', unsafe_allow_html=True)
+                            st.markdown(f'<a href="{aggr_links["pokemon_com"]}" target="_blank" class="btn-ebay" style="display:block; text-align:center; padding: 5px; font-size:0.75rem; text-decoration:none; background:#1e3a8a;">🌐 Pokemon.com</a>', unsafe_allow_html=True)
     else:
         disp_df = filtered_master[[
             "release_year", "card_name", "set_name", "card_number",

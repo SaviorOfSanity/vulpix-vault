@@ -108,6 +108,42 @@ VULPIX_KNOWN_SET_INDEX = {
         "rarity": "Common",
         "image_url": "https://images.pokemontcg.io/ex11/91_hires.png",
     },
+    ("ex dragon frontiers", "70"): {
+        "card_name": "Vulpix",
+        "release_year": 2006,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/ex15/70_hires.png",
+    },
+    ("dragon frontiers", "70"): {
+        "card_name": "Vulpix",
+        "release_year": 2006,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/ex15/70_hires.png",
+    },
+    ("ex power keepers", "69"): {
+        "card_name": "Vulpix",
+        "release_year": 2007,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/ex16/69_hires.png",
+    },
+    ("power keepers", "69"): {
+        "card_name": "Vulpix",
+        "release_year": 2007,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/ex16/69_hires.png",
+    },
+    ("ex trainer kit 2", "12"): {
+        "card_name": "Vulpix",
+        "release_year": 2006,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/tk2a/12_hires.png",
+    },
+    ("ex battle boost", "14"): {
+        "card_name": "Vulpix",
+        "release_year": 2013,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/bw10/14_hires.png",
+    },
 
     # --- Diamond & Pearl / Platinum / HGSS Era ---
     ("diamond & pearl", "106"): {
@@ -116,11 +152,29 @@ VULPIX_KNOWN_SET_INDEX = {
         "rarity": "Common",
         "image_url": "https://images.pokemontcg.io/dp1/106_hires.png",
     },
+    ("mysterious treasures", "106"): {
+        "card_name": "Vulpix",
+        "release_year": 2007,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/dp2/106_hires.png",
+    },
+    ("mysterious treasures", "107"): {
+        "card_name": "Vulpix",
+        "release_year": 2007,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/dp2/106_hires.png",
+    },
     ("secret wonders", "122"): {
         "card_name": "Vulpix",
         "release_year": 2007,
         "rarity": "Common",
         "image_url": "https://images.pokemontcg.io/dp3/122_hires.png",
+    },
+    ("platinum", "102"): {
+        "card_name": "Vulpix",
+        "release_year": 2009,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/pl1/102_hires.png",
     },
     ("supreme victors", "sh8"): {
         "card_name": "Vulpix (Shiny)",
@@ -134,11 +188,29 @@ VULPIX_KNOWN_SET_INDEX = {
         "rarity": "Common",
         "image_url": "https://images.pokemontcg.io/hgss1/88_hires.png",
     },
+    ("heartgold & soulsilver", "88"): {
+        "card_name": "Vulpix",
+        "release_year": 2010,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/hgss1/88_hires.png",
+    },
+    ("unleashed", "68"): {
+        "card_name": "Vulpix",
+        "release_year": 2010,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/hgss2/68_hires.png",
+    },
     ("undaunted", "70"): {
         "card_name": "Vulpix",
         "release_year": 2010,
         "rarity": "Common",
         "image_url": "https://images.pokemontcg.io/hgss3/70_hires.png",
+    },
+    ("call of legends", "75"): {
+        "card_name": "Vulpix",
+        "release_year": 2011,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/col1/75_hires.png",
     },
 
     # --- Black & White / XY Era ---
@@ -154,7 +226,19 @@ VULPIX_KNOWN_SET_INDEX = {
         "rarity": "Common",
         "image_url": "https://images.pokemontcg.io/bw6/18_hires.png",
     },
+    ("legendary treasures", "20"): {
+        "card_name": "Vulpix",
+        "release_year": 2013,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/bw11/20_hires.png",
+    },
     ("primal clash", "20"): {
+        "card_name": "Vulpix",
+        "release_year": 2015,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/xy5/20_hires.png",
+    },
+    ("primal clash", "21"): {
         "card_name": "Vulpix",
         "release_year": 2015,
         "rarity": "Common",
@@ -167,6 +251,12 @@ VULPIX_KNOWN_SET_INDEX = {
         "image_url": "https://images.pokemontcg.io/g1/21_hires.png",
     },
     ("evolutions", "14"): {
+        "card_name": "Vulpix",
+        "release_year": 2016,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/xy12/14_hires.png",
+    },
+    ("xy evolutions", "14"): {
         "card_name": "Vulpix",
         "release_year": 2016,
         "rarity": "Common",
@@ -185,6 +275,12 @@ VULPIX_KNOWN_SET_INDEX = {
         "release_year": 2017,
         "rarity": "Common",
         "image_url": "https://images.pokemontcg.io/sm3/27_hires.png",
+    },
+    ("ultra prism", "27"): {
+        "card_name": "Alolan Vulpix",
+        "release_year": 2018,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sm5/27_hires.png",
     },
     ("lost thunder", "53"): {
         "card_name": "Alolan Vulpix",
@@ -209,6 +305,12 @@ VULPIX_KNOWN_SET_INDEX = {
         "release_year": 2019,
         "rarity": "Common",
         "image_url": "https://images.pokemontcg.io/sm12/38_hires.png",
+    },
+    ("cosmic eclipse", "39"): {
+        "card_name": "Vulpix",
+        "release_year": 2019,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sm12/39_hires.png",
     },
     ("hidden fates", "sv8"): {
         "card_name": "Alolan Vulpix (Shiny)",
@@ -242,6 +344,18 @@ VULPIX_KNOWN_SET_INDEX = {
         "rarity": "Common",
         "image_url": "https://images.pokemontcg.io/swsh3/24_hires.png",
     },
+    ("fusion strike", "29"): {
+        "card_name": "Vulpix",
+        "release_year": 2021,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/swsh8/29_hires.png",
+    },
+    ("fusion strike", "30"): {
+        "card_name": "Vulpix",
+        "release_year": 2021,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/swsh8/30_hires.png",
+    },
     ("silver tempest", "33"): {
         "card_name": "Alolan Vulpix V",
         "release_year": 2022,
@@ -268,6 +382,12 @@ VULPIX_KNOWN_SET_INDEX = {
     },
 
     # --- Scarlet & Violet Era ---
+    ("obsidian flames", "28"): {
+        "card_name": "Vulpix",
+        "release_year": 2023,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sv3/28_hires.png",
+    },
     ("151", "37"): {
         "card_name": "Vulpix",
         "release_year": 2023,
@@ -279,6 +399,219 @@ VULPIX_KNOWN_SET_INDEX = {
         "release_year": 2023,
         "rarity": "Special Illustration Rare",
         "image_url": "https://images.pokemontcg.io/sv3pt5/177_hires.png",
+    },
+    ("twilight masquerade", "27"): {
+        "card_name": "Vulpix",
+        "release_year": 2024,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sv6/27_hires.png",
+    },
+    ("surging sparks", "16"): {
+        "card_name": "Vulpix",
+        "release_year": 2024,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sv8/16_hires.png",
+    },
+
+    # --- Japanese Sets & Promos ---
+    ("20th anniversary", "14"): {
+        "card_name": "Vulpix",
+        "release_year": 2016,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/cp6/14_hires.png",
+    },
+    ("alter genesis", "16"): {
+        "card_name": "Vulpix",
+        "release_year": 2019,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sm12/38_hires.png",
+    },
+    ("blue sky stream", "10"): {
+        "card_name": "Vulpix",
+        "release_year": 2021,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/swsh7/10_hires.png",
+    },
+    ("dragon blast", "10"): {
+        "card_name": "Vulpix",
+        "release_year": 2012,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/bw6/18_hires.png",
+    },
+    ("crimson haze", "14"): {
+        "card_name": "Vulpix",
+        "release_year": 2024,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sv6/27_hires.png",
+    },
+    ("darkness and to light", "70"): {
+        "card_name": "Light Vulpix",
+        "release_year": 2001,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/neo4/70_hires.png",
+    },
+    ("guren town gym", "65"): {
+        "card_name": "Blaine's Vulpix",
+        "release_year": 1998,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/gym1/65_hires.png",
+    },
+    ("nivi city gym", "73"): {
+        "card_name": "Brock's Vulpix",
+        "release_year": 1998,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/gym1/73_hires.png",
+    },
+    ("incandescent arcana", "10"): {
+        "card_name": "Alolan Vulpix V",
+        "release_year": 2022,
+        "rarity": "Rare",
+        "image_url": "https://images.pokemontcg.io/s11a/10_hires.png",
+    },
+    ("lost abyss", "20"): {
+        "card_name": "Vulpix",
+        "release_year": 2022,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/s11/20_hires.png",
+    },
+    ("ruler of the black flame", "18"): {
+        "card_name": "Vulpix",
+        "release_year": 2023,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sv3/28_hires.png",
+    },
+    ("pokemon card 151", "37"): {
+        "card_name": "Vulpix",
+        "release_year": 2023,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sv3pt5/37_hires.png",
+    },
+
+    ("sword & shield", "22"): {
+        "card_name": "Vulpix",
+        "release_year": 2020,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/swsh1/22_hires.png",
+    },
+    ("twilight masquerade", "26"): {
+        "card_name": "Vulpix",
+        "release_year": 2024,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sv6/26_hires.png",
+    },
+    ("ultra prism", "30"): {
+        "card_name": "Alolan Vulpix",
+        "release_year": 2018,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sm5/30_hires.png",
+    },
+    ("pokemon rumble", "7"): {
+        "card_name": "Vulpix",
+        "release_year": 2009,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/ru1/7_hires.png",
+    },
+    ("pokemon web", "8"): {
+        "card_name": "Vulpix",
+        "release_year": 2001,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/web1/8_hires.png",
+    },
+    ("mcdonalds collection 2016", "5"): {
+        "card_name": "Vulpix",
+        "release_year": 2016,
+        "rarity": "Promo",
+        "image_url": "https://images.pokemontcg.io/mcd16/5_hires.png",
+    },
+    ("sun & moon trainer kit", "14"): {
+        "card_name": "Alolan Vulpix",
+        "release_year": 2017,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/tk-sm-a/14_hires.png",
+    },
+    ("sun & moon trainer kit", "29"): {
+        "card_name": "Alolan Vulpix",
+        "release_year": 2017,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/tk-sm-a/14_hires.png",
+    },
+    ("galactics conquest", "16"): {
+        "card_name": "Vulpix",
+        "release_year": 2008,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/dp7/16_hires.png",
+    },
+    ("galactics conquest", "17"): {
+        "card_name": "Vulpix",
+        "release_year": 2008,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/dp7/16_hires.png",
+    },
+    ("tag all stars", "17"): {
+        "card_name": "Vulpix",
+        "release_year": 2019,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sm12a/17_hires.png",
+    },
+    ("tag all stars", "32"): {
+        "card_name": "Alolan Vulpix",
+        "release_year": 2019,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sm12a/32_hires.png",
+    },
+    ("tag bolt", "14"): {
+        "card_name": "Vulpix",
+        "release_year": 2018,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/sm9/14_hires.png",
+    },
+    ("vmax rising", "12"): {
+        "card_name": "Vulpix",
+        "release_year": 2020,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/s1a/12_hires.png",
+    },
+    ("soulsilver collection", "12"): {
+        "card_name": "Vulpix",
+        "release_year": 2009,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/hgss1/88_hires.png",
+    },
+    ("wind from the sea", "21"): {
+        "card_name": "Vulpix",
+        "release_year": 2002,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/ecard2/116_hires.png",
+    },
+    ("world champions pack", "9"): {
+        "card_name": "Vulpix",
+        "release_year": 2007,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/ex11/91_hires.png",
+    },
+    ("incandescent arcana", "22"): {
+        "card_name": "Alolan Vulpix V",
+        "release_year": 2022,
+        "rarity": "Double Rare",
+        "image_url": "https://images.pokemontcg.io/swsh12/33_hires.png",
+    },
+    ("incandescent arcana", "23"): {
+        "card_name": "Alolan Vulpix VSTAR",
+        "release_year": 2022,
+        "rarity": "Triple Rare",
+        "image_url": "https://images.pokemontcg.io/swsh12/34_hires.png",
+    },
+    ("incandescent arcana", "77"): {
+        "card_name": "Alolan Vulpix V (Full Art)",
+        "release_year": 2022,
+        "rarity": "Super Rare",
+        "image_url": "https://images.pokemontcg.io/swsh12/173_hires.png",
+    },
+    ("incandescent arcana", "87"): {
+        "card_name": "Alolan Vulpix VSTAR (Rainbow Rare)",
+        "release_year": 2022,
+        "rarity": "Hyper Rare",
+        "image_url": "https://images.pokemontcg.io/swsh12/197_hires.png",
     },
 
     # --- Japanese Vintage, CoroCoro, Vending, Promos ---

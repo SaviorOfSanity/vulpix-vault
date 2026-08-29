@@ -278,11 +278,58 @@ def generate_ebay_search_url(
 
 
 def get_pricecharting_search_url(card_name: str, set_name: str = "", card_number: str = "") -> str:
-    """Generates PriceCharting search URL for card price aggregation."""
-    clean_set = re.sub(r"\([0-9]{4}\)", "", set_name).strip()
-    query = f"pokemon {card_name} {clean_set} {card_number}".strip()
-    encoded = urllib.parse.quote_plus(query)
+    """
+    Generates clean PriceCharting direct product URL or targeted search URL.
+    Handles 'EX Dragon Frontiers' -> 'dragon-frontiers', '70/101' -> '70', etc.
+    """
+    clean_set = re.sub(r"\([0-9]{4}\)", "", set_name)
+    clean_set_name = re.sub(r"^(?:EX|e-Card)\s+", "", clean_set, flags=re.IGNORECASE).strip()
+
+    clean_num = str(card_number).split("/")[0].strip()
+    match_num = re.search(r"([A-Za-z]*[0-9]+)", clean_num)
+    num_str = match_num.group(1) if match_num else ""
+
+    clean_name = re.sub(r"\(.*?\)", "", card_name).strip()
+
+    # PriceCharting direct game slug
+    set_slug = re.sub(r"[^a-zA-Z0-9]+", "-", clean_set_name.lower()).strip("-")
+    name_slug = re.sub(r"[^a-zA-Z0-9]+", "-", clean_name.lower()).strip("-")
+
+    if set_slug and name_slug and num_str and not any(k in set_slug for k in ["promo", "vending", "corocoro"]):
+        return f"https://www.pricecharting.com/game/pokemon-{set_slug}/{name_slug}-{num_str}"
+
+    query = f"Pokemon {clean_name} {clean_set_name} {num_str}".strip()
+    encoded = urllib.parse.quote_plus(re.sub(r"\s+", " ", query))
     return f"https://www.pricecharting.com/search-products?q={encoded}&type=prices"
+
+
+def get_card_aggregator_links(card_name: str, set_name: str = "", card_number: str = "") -> Dict[str, str]:
+    """Generates direct lookup URLs across PriceCharting, TCGCollector, Pokecardex, and Pokemon.com."""
+    clean_set = re.sub(r"\([0-9]{4}\)", "", set_name)
+    clean_set_name = re.sub(r"^(?:EX|e-Card)\s+", "", clean_set, flags=re.IGNORECASE).strip()
+    clean_num = str(card_number).split("/")[0].strip()
+    match_num = re.search(r"([A-Za-z]*[0-9]+)", clean_num)
+    num_str = match_num.group(1) if match_num else ""
+    clean_name = re.sub(r"\(.*?\)", "", card_name).strip()
+
+    pc_url = get_pricecharting_search_url(card_name, set_name, card_number)
+
+    # TCGCollector
+    tcgcol_query = f"{clean_name} {clean_set_name}".strip()
+    tcgcol_url = f"https://www.tcgcollector.com/cards/intl?cardSearch={urllib.parse.quote_plus(tcgcol_query)}&displayAs=images"
+
+    # Pokecardex
+    pokecardex_url = f"https://www.pokecardex.com/search?q={urllib.parse.quote_plus(tcgcol_query)}"
+
+    # Pokemon.com
+    pokemon_com_url = f"https://www.pokemon.com/us/pokemon-tcg/pokemon-cards/?cardName={urllib.parse.quote_plus(clean_name)}"
+
+    return {
+        "pricecharting": pc_url,
+        "tcgcollector": tcgcol_url,
+        "pokecardex": pokecardex_url,
+        "pokemon_com": pokemon_com_url,
+    }
 
 
 def get_psa_cert_lookup_url(cert_number: str) -> str:
