@@ -4,6 +4,7 @@ Includes special grade badges (Pristine 10, Black Label 10), Error indicators,
 and Master Set progress tracking.
 """
 
+from typing import Any, Optional
 import streamlit as st
 
 
