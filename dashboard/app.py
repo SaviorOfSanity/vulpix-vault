@@ -583,10 +583,8 @@ with tab_master_set:
                         st.markdown(f"- **Est. PSA 10 Value:** `${row['est_grade10_price']:,.2f}`")
                         if row.get("pop_grade10"):
                             st.markdown(f"- **PSA 10 Population:** `{row['pop_grade10']}`")
-                        if row.get("notes") and row.get("notes") != row.get("error_description"):
-                            st.markdown(f"- **Variant / Notes:** {row['notes']}")
-                        
-                        st.link_button("📊 PriceCharting History ↗", pc_url)
+                        if pc_url and str(pc_url).startswith("http"):
+                            st.markdown(f'<a href="{pc_url}" target="_blank" class="btn-pc" style="display:block; text-align:center; padding: 6px 12px; font-size:0.82rem; margin-top:8px; text-decoration:none;">📊 View PriceCharting History ↗</a>', unsafe_allow_html=True)
     else:
         disp_df = filtered_master[[
             "release_year", "card_name", "set_name", "card_number",

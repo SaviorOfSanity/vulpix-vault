@@ -908,6 +908,61 @@ def update_master_card(card_id: int, updates: Dict[str, Any]) -> None:
         })
 
 
+def check_master_card_owned(master_row: Any, df_col: pd.DataFrame) -> pd.DataFrame:
+    """Finds all copies in user's collection that match this master catalog card (regardless of grade CGC 9, PSA 10, Raw)."""
+    if df_col.empty:
+        return df_col
+
+    # 1. Match by explicit master_card_id foreign key
+    m_id = master_row["id"]
+    matched = df_col[df_col["master_card_id"] == m_id]
+    if not matched.empty:
+        return matched
+
+    m_card = normalize_str(str(master_row["card_name"]))
+    m_set = normalize_str(str(master_row["set_name"]))
+    m_num = extract_base_number(str(master_row.get("card_number", "")))
+    m_ed = str(master_row.get("edition", "")).strip().lower()
+    m_is_1st = "1st" in m_ed or "first" in m_ed
+
+    candidates = []
+    for _, c_row in df_col.iterrows():
+        c_card = normalize_str(str(c_row["card_name"]))
+        c_set = normalize_str(str(c_row["set_name"]))
+        c_num = extract_base_number(str(c_row.get("card_number", "")))
+        c_ed = str(c_row.get("edition", "")).strip().lower()
+        c_is_1st = "1st" in c_ed or "first" in c_ed
+
+        # Check Set Name overlap
+        if m_set not in c_set and c_set not in m_set:
+            continue
+
+        # Check Card Number if both are present
+        if m_num and c_num and m_num != c_num:
+            continue
+
+        # Check Card Name special variants
+        if m_card != c_card:
+            if "blaine" in m_card and "blaine" not in c_card:
+                continue
+            if "brock" in m_card and "brock" not in c_card:
+                continue
+            if "light" in m_card and "light" not in c_card:
+                continue
+            if "alolan" in m_card and "alolan" not in c_card:
+                continue
+
+        # Check 1st Edition alignment
+        if m_is_1st != c_is_1st and ("1st" in m_ed or "1st" in c_ed):
+            continue
+
+        candidates.append(c_row)
+
+    if candidates:
+        return pd.DataFrame(candidates)
+    return pd.DataFrame()
+
+
 def load_master_catalog_df() -> pd.DataFrame:
     """Loads Master Set catalog with real-time user owned status."""
     ensure_tables_exist()
@@ -923,19 +978,7 @@ def load_master_catalog_df() -> pd.DataFrame:
     owned_details_list = []
 
     for _, master_row in df_master.iterrows():
-        m_id = master_row["id"]
-        matched = df_col[df_col["master_card_id"] == m_id]
-
-        if matched.empty:
-            m_card = str(master_row["card_name"]).strip().lower()
-            m_set = str(master_row["set_name"]).strip().lower()
-            m_ed = str(master_row["edition"]).strip().lower()
-
-            matched = df_col[
-                (df_col["card_name"].str.strip().str.lower() == m_card) &
-                (df_col["set_name"].str.strip().str.lower() == m_set) &
-                (df_col["edition"].str.strip().str.lower() == m_ed)
-            ]
+        matched = check_master_card_owned(master_row, df_col)
 
         if not matched.empty:
             is_owned_list.append(True)
