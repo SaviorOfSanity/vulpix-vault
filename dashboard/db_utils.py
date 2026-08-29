@@ -1,7 +1,8 @@
 """
 Database utility module for Streamlit Dashboard.
 100% Self-contained: manages SQLite WAL mode, Master Set catalog, collection CRUD,
-eBay search query generation, sniper watchlist, Google Sheets sync, and CSV diagnostics.
+eBay search query generation, PriceCharting aggregated prices, PSA/CGC Population reports,
+sniper watchlist, Google Sheets sync, and CSV diagnostics.
 """
 
 import io
@@ -54,7 +55,7 @@ def _add_column_if_missing(cursor: sqlite3.Cursor, table: str, column: str, col_
 
 
 def ensure_tables_exist():
-    """Ensure database schema is created and auto-migrated."""
+    """Ensure database schema is created and auto-migrated with PriceCharting & Pop stats."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
@@ -73,6 +74,13 @@ def ensure_tables_exist():
                 error_description TEXT,
                 est_raw_price REAL DEFAULT 0.0,
                 est_grade10_price REAL DEFAULT 0.0,
+                pricecharting_url TEXT,
+                pricecharting_raw REAL DEFAULT 0.0,
+                pricecharting_grade9 REAL DEFAULT 0.0,
+                pricecharting_grade10 REAL DEFAULT 0.0,
+                pop_total INTEGER DEFAULT 0,
+                pop_grade10 INTEGER DEFAULT 0,
+                pop_pristine10 INTEGER DEFAULT 0,
                 image_url TEXT,
                 notes TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -98,6 +106,8 @@ def ensure_tables_exist():
                 is_error INTEGER DEFAULT 0,
                 error_type TEXT,
                 is_raw INTEGER DEFAULT 0,
+                pop_grade10 INTEGER DEFAULT 0,
+                pop_pristine10 INTEGER DEFAULT 0,
                 master_card_id INTEGER,
                 image_url TEXT,
                 notes TEXT,
@@ -157,31 +167,28 @@ def ensure_tables_exist():
 
         # Auto-migration columns
         for col, ctype in [
-            ("edition", "TEXT DEFAULT 'Unlimited'"),
-            ("language", "TEXT DEFAULT 'English'"),
-            ("is_error", "INTEGER DEFAULT 0"),
-            ("error_type", "TEXT"),
-            ("grade_label", "TEXT DEFAULT 'Gem Mint'"),
-            ("is_raw", "INTEGER DEFAULT 0"),
-            ("master_card_id", "INTEGER"),
+            ("pricecharting_url", "TEXT"),
+            ("pricecharting_raw", "REAL DEFAULT 0.0"),
+            ("pricecharting_grade9", "REAL DEFAULT 0.0"),
+            ("pricecharting_grade10", "REAL DEFAULT 0.0"),
+            ("pop_total", "INTEGER DEFAULT 0"),
+            ("pop_grade10", "INTEGER DEFAULT 0"),
+            ("pop_pristine10", "INTEGER DEFAULT 0"),
         ]:
-            _add_column_if_missing(cursor, "my_collection", col, ctype)
+            _add_column_if_missing(cursor, "master_set_catalog", col, ctype)
 
         for col, ctype in [
-            ("grade_label", "TEXT DEFAULT 'Gem Mint'"),
-            ("condition_type", "TEXT DEFAULT 'Graded'"),
-            ("edition", "TEXT DEFAULT 'Unlimited'"),
-            ("language", "TEXT DEFAULT 'English'"),
-            ("is_error", "INTEGER DEFAULT 0"),
+            ("pop_grade10", "INTEGER DEFAULT 0"),
+            ("pop_pristine10", "INTEGER DEFAULT 0"),
         ]:
-            _add_column_if_missing(cursor, "market_sales", col, ctype)
+            _add_column_if_missing(cursor, "my_collection", col, ctype)
 
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_master_search ON master_set_catalog(card_name, set_name, language, edition);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_lookup ON market_sales(card_name, grading_company, grade, condition_type);")
 
 
 # =============================================================
-# eBay Search URL Generator
+# URL & Aggregation Link Helpers
 # =============================================================
 
 def generate_ebay_search_url(
@@ -227,6 +234,22 @@ def generate_ebay_search_url(
     if is_auction_only:
         url += "&LH_Auction=1"
     return url
+
+
+def get_pricecharting_search_url(card_name: str, set_name: str = "", card_number: str = "") -> str:
+    """Generates PriceCharting search URL for card price aggregation."""
+    clean_set = re.sub(r"\([0-9]{4}\)", "", set_name).strip()
+    query = f"pokemon {card_name} {clean_set} {card_number}".strip()
+    encoded = urllib.parse.quote_plus(query)
+    return f"https://www.pricecharting.com/search-products?q={encoded}&type=prices"
+
+
+def get_psa_cert_lookup_url(cert_number: str) -> str:
+    """Generates direct PSA certificate and population lookup link."""
+    clean_cert = re.sub(r"[^\d]", "", cert_number)
+    if clean_cert:
+        return f"https://www.psacard.com/cert/{clean_cert}"
+    return "https://www.psacard.com/pop"
 
 
 # =============================================================
@@ -294,16 +317,24 @@ def delete_from_sniper_watchlist(item_id: int) -> None:
 # =============================================================
 
 def bulk_upsert_master_catalog(cards: List[Dict[str, Any]]) -> int:
-    """Bulk insert or update cards in master_set_catalog."""
+    """Bulk insert or update cards in master_set_catalog with PriceCharting & Pop stats."""
     ensure_tables_exist()
     count = 0
     with get_db_connection() as conn:
         cursor = conn.cursor()
         for card in cards:
+            c_name = str(card.get("card_name", "Vulpix")).strip()
+            s_name = str(card.get("set_name", "Unknown Set")).strip()
+            c_num = str(card.get("card_number", "")).strip()
+
+            pc_url = str(card.get("pricecharting_url") or "").strip()
+            if not pc_url:
+                pc_url = get_pricecharting_search_url(c_name, s_name, c_num)
+
             params = {
-                "card_name": str(card.get("card_name", "Vulpix")).strip(),
-                "set_name": str(card.get("set_name", "Unknown Set")).strip(),
-                "card_number": str(card.get("card_number", "")).strip(),
+                "card_name": c_name,
+                "set_name": s_name,
+                "card_number": c_num,
                 "release_year": int(card.get("release_year") or 2000),
                 "language": str(card.get("language", "English")).strip(),
                 "edition": str(card.get("edition", "Unlimited")).strip(),
@@ -312,6 +343,13 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]]) -> int:
                 "error_description": str(card.get("error_description", "")).strip(),
                 "est_raw_price": float(card.get("est_raw_price") or 0.0),
                 "est_grade10_price": float(card.get("est_grade10_price") or 0.0),
+                "pricecharting_url": pc_url,
+                "pricecharting_raw": float(card.get("pricecharting_raw") or 0.0),
+                "pricecharting_grade9": float(card.get("pricecharting_grade9") or 0.0),
+                "pricecharting_grade10": float(card.get("pricecharting_grade10") or 0.0),
+                "pop_total": int(card.get("pop_total") or 0),
+                "pop_grade10": int(card.get("pop_grade10") or 0),
+                "pop_pristine10": int(card.get("pop_pristine10") or 0),
                 "image_url": str(card.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png")).strip(),
                 "notes": str(card.get("notes", "")).strip(),
             }
@@ -319,11 +357,15 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]]) -> int:
                 INSERT INTO master_set_catalog (
                     card_name, set_name, card_number, release_year,
                     language, edition, rarity, is_error, error_description,
-                    est_raw_price, est_grade10_price, image_url, notes
+                    est_raw_price, est_grade10_price, pricecharting_url,
+                    pricecharting_raw, pricecharting_grade9, pricecharting_grade10,
+                    pop_total, pop_grade10, pop_pristine10, image_url, notes
                 ) VALUES (
                     :card_name, :set_name, :card_number, :release_year,
                     :language, :edition, :rarity, :is_error, :error_description,
-                    :est_raw_price, :est_grade10_price, :image_url, :notes
+                    :est_raw_price, :est_grade10_price, :pricecharting_url,
+                    :pricecharting_raw, :pricecharting_grade9, :pricecharting_grade10,
+                    :pop_total, :pop_grade10, :pop_pristine10, :image_url, :notes
                 )
                 ON CONFLICT(card_name, set_name, card_number, language, edition, is_error)
                 DO UPDATE SET
@@ -332,6 +374,11 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]]) -> int:
                     error_description = excluded.error_description,
                     est_raw_price = CASE WHEN excluded.est_raw_price > 0 THEN excluded.est_raw_price ELSE master_set_catalog.est_raw_price END,
                     est_grade10_price = CASE WHEN excluded.est_grade10_price > 0 THEN excluded.est_grade10_price ELSE master_set_catalog.est_grade10_price END,
+                    pricecharting_url = CASE WHEN excluded.pricecharting_url != '' THEN excluded.pricecharting_url ELSE master_set_catalog.pricecharting_url END,
+                    pricecharting_raw = CASE WHEN excluded.pricecharting_raw > 0 THEN excluded.pricecharting_raw ELSE master_set_catalog.pricecharting_raw END,
+                    pricecharting_grade10 = CASE WHEN excluded.pricecharting_grade10 > 0 THEN excluded.pricecharting_grade10 ELSE master_set_catalog.pricecharting_grade10 END,
+                    pop_grade10 = CASE WHEN excluded.pop_grade10 > 0 THEN excluded.pop_grade10 ELSE master_set_catalog.pop_grade10 END,
+                    pop_pristine10 = CASE WHEN excluded.pop_pristine10 > 0 THEN excluded.pop_pristine10 ELSE master_set_catalog.pop_pristine10 END,
                     image_url = CASE WHEN excluded.image_url != '' THEN excluded.image_url ELSE master_set_catalog.image_url END,
                     notes = CASE WHEN excluded.notes != '' THEN excluded.notes ELSE master_set_catalog.notes END;
             """, params)
@@ -357,6 +404,10 @@ def update_master_card(card_id: int, updates: Dict[str, Any]) -> None:
                 error_description = :error_description,
                 est_raw_price = :est_raw_price,
                 est_grade10_price = :est_grade10_price,
+                pricecharting_raw = :pricecharting_raw,
+                pricecharting_grade10 = :pricecharting_grade10,
+                pop_grade10 = :pop_grade10,
+                pop_pristine10 = :pop_pristine10,
                 image_url = :image_url,
                 notes = :notes
             WHERE id = :id
@@ -373,6 +424,10 @@ def update_master_card(card_id: int, updates: Dict[str, Any]) -> None:
             "error_description": updates.get("error_description", ""),
             "est_raw_price": float(updates.get("est_raw_price", 0.0)),
             "est_grade10_price": float(updates.get("est_grade10_price", 0.0)),
+            "pricecharting_raw": float(updates.get("pricecharting_raw", 0.0)),
+            "pricecharting_grade10": float(updates.get("pricecharting_grade10", 0.0)),
+            "pop_grade10": int(updates.get("pop_grade10", 0)),
+            "pop_pristine10": int(updates.get("pop_pristine10", 0)),
             "image_url": updates.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png"),
             "notes": updates.get("notes", ""),
         })
@@ -506,6 +561,10 @@ def sync_master_catalog_from_df(
                 col_map["est_raw_price"] = col
             elif any(k in c for k in ["grade 10", "psa 10", "10 price", "est 10", "slab price"]):
                 col_map["est_grade10_price"] = col
+            elif any(k in c for k in ["pop", "population"]):
+                col_map["pop_grade10"] = col
+            elif any(k in c for k in ["pricecharting", "charting"]):
+                col_map["pricecharting_grade10"] = col
             elif any(k in c for k in ["image", "url", "picture"]):
                 col_map["image_url"] = col
             elif any(k in c for k in ["notes", "description", "details", "comments"]):
@@ -529,6 +588,15 @@ def sync_master_catalog_from_df(
         s = re.sub(r"[^\d.]", "", str(v))
         try:
             return float(s)
+        except ValueError:
+            return default
+
+    def parse_int(v, default=0):
+        if pd.isna(v):
+            return default
+        s = re.sub(r"[^\d]", "", str(v))
+        try:
+            return int(s)
         except ValueError:
             return default
 
@@ -557,6 +625,7 @@ def sync_master_catalog_from_df(
         rarity_val = str(row.get(col_map.get("rarity"), "Common")).strip()
         img_val = str(row.get(col_map.get("image_url"), "https://images.pokemontcg.io/base1/68_hires.png")).strip()
         notes_val = str(row.get(col_map.get("notes"), "")).strip()
+        pop_10_val = parse_int(row.get(col_map.get("pop_grade10")), 0)
 
         card_dict = {
             "card_name": c_name,
@@ -570,6 +639,10 @@ def sync_master_catalog_from_df(
             "error_description": notes_val if is_err else "",
             "est_raw_price": raw_p,
             "est_grade10_price": g10_p,
+            "pop_grade10": pop_10_val,
+            "pricecharting_url": get_pricecharting_search_url(c_name, set_val, card_num_val),
+            "pricecharting_raw": raw_p,
+            "pricecharting_grade10": g10_p,
             "image_url": img_val or "https://images.pokemontcg.io/base1/68_hires.png",
             "notes": notes_val,
         }
@@ -592,6 +665,7 @@ def sync_master_catalog_from_df(
                 "is_error": is_err,
                 "error_type": notes_val if is_err else None,
                 "is_raw": 1,
+                "pop_grade10": pop_10_val,
                 "image_url": img_val,
                 "notes": notes_val,
             })
@@ -667,6 +741,8 @@ def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
             col_map["edition"] = col
         elif any(k in c for k in ["lang"]):
             col_map["language"] = col
+        elif any(k in c for k in ["pop"]):
+            col_map["pop_grade10"] = col
         elif any(k in c for k in ["image"]):
             col_map["image_url"] = col
         elif any(k in c for k in ["notes"]):
@@ -692,6 +768,7 @@ def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
 
         grade_num = parse_num(row.get(col_map.get("grade")), 0.0) if not is_raw else 0.0
         price_num = parse_num(row.get(col_map.get("purchase_price")), 10.0)
+        pop_num = int(parse_num(row.get(col_map.get("pop_grade10")), 0))
 
         card_data = {
             "card_name": c_name,
@@ -708,6 +785,7 @@ def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
             "is_error": 0,
             "error_type": None,
             "is_raw": is_raw,
+            "pop_grade10": pop_num,
             "image_url": str(row.get(col_map.get("image_url"), "https://images.pokemontcg.io/base1/68_hires.png")).strip(),
             "notes": str(row.get(col_map.get("notes"), "")).strip(),
         }
@@ -731,6 +809,7 @@ def get_csv_template_bytes() -> bytes:
             "Is Error": "No",
             "Est Raw Price": 8.00,
             "Est Grade 10 Price": 240.00,
+            "Pop Grade 10": 185,
             "Owned": "Yes",
             "Image URL": "https://images.pokemontcg.io/base1/68_hires.png",
             "Notes": "1st Edition Base Set.",
@@ -746,6 +825,7 @@ def get_csv_template_bytes() -> bytes:
             "Is Error": "No",
             "Est Raw Price": 2.50,
             "Est Grade 10 Price": 45.00,
+            "Pop Grade 10": 115,
             "Owned": "No",
             "Image URL": "https://images.pokemontcg.io/gym1/49_hires.png",
             "Notes": "Gym Heroes Vulpix.",
@@ -834,12 +914,12 @@ def add_card_to_collection(card: Dict[str, Any]) -> int:
                 card_name, set_name, card_number, grading_company,
                 grade, grade_label, cert_number, purchase_price, purchase_date,
                 edition, language, is_error, error_type, is_raw,
-                master_card_id, image_url, notes
+                pop_grade10, pop_pristine10, master_card_id, image_url, notes
             ) VALUES (
                 :card_name, :set_name, :card_number, :grading_company,
                 :grade, :grade_label, :cert_number, :purchase_price, :purchase_date,
                 :edition, :language, :is_error, :error_type, :is_raw,
-                :master_card_id, :image_url, :notes
+                :pop_grade10, :pop_pristine10, :master_card_id, :image_url, :notes
             )
         """, {
             "card_name": card.get("card_name", "Vulpix"),
@@ -856,6 +936,8 @@ def add_card_to_collection(card: Dict[str, Any]) -> int:
             "is_error": 1 if card.get("is_error") else 0,
             "error_type": card.get("error_type"),
             "is_raw": 1 if card.get("is_raw") else 0,
+            "pop_grade10": int(card.get("pop_grade10") or 0),
+            "pop_pristine10": int(card.get("pop_pristine10") or 0),
             "master_card_id": master_id,
             "image_url": card.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png"),
             "notes": card.get("notes", ""),
@@ -884,6 +966,8 @@ def update_collection_card(card_id: int, updates: Dict[str, Any]) -> None:
                 is_error = :is_error,
                 error_type = :error_type,
                 is_raw = :is_raw,
+                pop_grade10 = :pop_grade10,
+                pop_pristine10 = :pop_pristine10,
                 image_url = :image_url,
                 notes = :notes
             WHERE id = :id
@@ -903,6 +987,8 @@ def update_collection_card(card_id: int, updates: Dict[str, Any]) -> None:
             "is_error": 1 if updates.get("is_error") else 0,
             "error_type": updates.get("error_type"),
             "is_raw": 1 if updates.get("is_raw") else 0,
+            "pop_grade10": int(updates.get("pop_grade10", 0)),
+            "pop_pristine10": int(updates.get("pop_pristine10", 0)),
             "image_url": updates.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png"),
             "notes": updates.get("notes", ""),
         })

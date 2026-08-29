@@ -1,7 +1,7 @@
 """
 Database management module for The Vulpix Vault.
 Configures SQLite with WAL mode, auto-migrates schemas, creates master_set_catalog,
-my_collection, market_sales, and ebay_sniper_watchlist tables.
+my_collection, market_sales, and ebay_sniper_watchlist tables with PriceCharting & Population support.
 """
 
 import os
@@ -47,7 +47,7 @@ def _add_column_if_missing(cursor: sqlite3.Cursor, table: str, column: str, col_
 
 
 def init_db(db_path: Optional[str] = None) -> None:
-    """Initialize or migrate database schema with master_set_catalog, my_collection, market_sales, and ebay_sniper_watchlist."""
+    """Initialize or migrate database schema with PriceCharting and Population fields."""
     with get_db_connection(db_path) as conn:
         cursor = conn.cursor()
 
@@ -66,6 +66,13 @@ def init_db(db_path: Optional[str] = None) -> None:
                 error_description TEXT,
                 est_raw_price REAL DEFAULT 0.0,
                 est_grade10_price REAL DEFAULT 0.0,
+                pricecharting_url TEXT,
+                pricecharting_raw REAL DEFAULT 0.0,
+                pricecharting_grade9 REAL DEFAULT 0.0,
+                pricecharting_grade10 REAL DEFAULT 0.0,
+                pop_total INTEGER DEFAULT 0,
+                pop_grade10 INTEGER DEFAULT 0,
+                pop_pristine10 INTEGER DEFAULT 0,
                 image_url TEXT,
                 notes TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -73,7 +80,7 @@ def init_db(db_path: Optional[str] = None) -> None:
             );
         """)
 
-        # 2. Personal Collection of Slabs & Raw Cards
+        # 2. Personal Collection
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS my_collection (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,6 +98,8 @@ def init_db(db_path: Optional[str] = None) -> None:
                 is_error INTEGER DEFAULT 0,
                 error_type TEXT,
                 is_raw INTEGER DEFAULT 0,
+                pop_grade10 INTEGER DEFAULT 0,
+                pop_pristine10 INTEGER DEFAULT 0,
                 master_card_id INTEGER,
                 image_url TEXT,
                 notes TEXT,
@@ -98,7 +107,7 @@ def init_db(db_path: Optional[str] = None) -> None:
             );
         """)
 
-        # 3. Market Sales & Listing Tracking
+        # 3. Market Sales
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS market_sales (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,7 +136,7 @@ def init_db(db_path: Optional[str] = None) -> None:
             );
         """)
 
-        # 4. eBay Sniper & Auction Watchlist
+        # 4. eBay Sniper Watchlist
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ebay_sniper_watchlist (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -148,30 +157,26 @@ def init_db(db_path: Optional[str] = None) -> None:
             );
         """)
 
-        # Migrations for existing tables
+        # Auto-migration columns for existing databases
         for col, ctype in [
-            ("edition", "TEXT DEFAULT 'Unlimited'"),
-            ("language", "TEXT DEFAULT 'English'"),
-            ("is_error", "INTEGER DEFAULT 0"),
-            ("error_type", "TEXT"),
-            ("grade_label", "TEXT DEFAULT 'Gem Mint'"),
-            ("is_raw", "INTEGER DEFAULT 0"),
-            ("master_card_id", "INTEGER"),
+            ("pricecharting_url", "TEXT"),
+            ("pricecharting_raw", "REAL DEFAULT 0.0"),
+            ("pricecharting_grade9", "REAL DEFAULT 0.0"),
+            ("pricecharting_grade10", "REAL DEFAULT 0.0"),
+            ("pop_total", "INTEGER DEFAULT 0"),
+            ("pop_grade10", "INTEGER DEFAULT 0"),
+            ("pop_pristine10", "INTEGER DEFAULT 0"),
+        ]:
+            _add_column_if_missing(cursor, "master_set_catalog", col, ctype)
+
+        for col, ctype in [
+            ("pop_grade10", "INTEGER DEFAULT 0"),
+            ("pop_pristine10", "INTEGER DEFAULT 0"),
         ]:
             _add_column_if_missing(cursor, "my_collection", col, ctype)
 
-        for col, ctype in [
-            ("grade_label", "TEXT DEFAULT 'Gem Mint'"),
-            ("condition_type", "TEXT DEFAULT 'Graded'"),
-            ("edition", "TEXT DEFAULT 'Unlimited'"),
-            ("language", "TEXT DEFAULT 'English'"),
-            ("is_error", "INTEGER DEFAULT 0"),
-        ]:
-            _add_column_if_missing(cursor, "market_sales", col, ctype)
-
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_master_search ON master_set_catalog(card_name, set_name, language, edition);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_lookup ON market_sales(card_name, grading_company, grade, condition_type);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sniper_status ON ebay_sniper_watchlist(status);")
 
 
 # =============================================================
@@ -224,7 +229,7 @@ def delete_from_sniper_watchlist(item_id: int, db_path: Optional[str] = None) ->
 # =============================================================
 
 def bulk_upsert_master_catalog(cards: List[Dict[str, Any]], db_path: Optional[str] = None) -> int:
-    """Bulk insert or update a list of master set cards."""
+    """Bulk insert or update a list of master set cards with PriceCharting & Pop stats."""
     count = 0
     with get_db_connection(db_path) as conn:
         cursor = conn.cursor()
@@ -241,6 +246,13 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]], db_path: Optional[st
                 "error_description": str(card.get("error_description", "")).strip(),
                 "est_raw_price": float(card.get("est_raw_price") or 0.0),
                 "est_grade10_price": float(card.get("est_grade10_price") or 0.0),
+                "pricecharting_url": str(card.get("pricecharting_url", "")).strip(),
+                "pricecharting_raw": float(card.get("pricecharting_raw") or 0.0),
+                "pricecharting_grade9": float(card.get("pricecharting_grade9") or 0.0),
+                "pricecharting_grade10": float(card.get("pricecharting_grade10") or 0.0),
+                "pop_total": int(card.get("pop_total") or 0),
+                "pop_grade10": int(card.get("pop_grade10") or 0),
+                "pop_pristine10": int(card.get("pop_pristine10") or 0),
                 "image_url": str(card.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png")).strip(),
                 "notes": str(card.get("notes", "")).strip(),
             }
@@ -248,11 +260,15 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]], db_path: Optional[st
                 INSERT INTO master_set_catalog (
                     card_name, set_name, card_number, release_year,
                     language, edition, rarity, is_error, error_description,
-                    est_raw_price, est_grade10_price, image_url, notes
+                    est_raw_price, est_grade10_price, pricecharting_url,
+                    pricecharting_raw, pricecharting_grade9, pricecharting_grade10,
+                    pop_total, pop_grade10, pop_pristine10, image_url, notes
                 ) VALUES (
                     :card_name, :set_name, :card_number, :release_year,
                     :language, :edition, :rarity, :is_error, :error_description,
-                    :est_raw_price, :est_grade10_price, :image_url, :notes
+                    :est_raw_price, :est_grade10_price, :pricecharting_url,
+                    :pricecharting_raw, :pricecharting_grade9, :pricecharting_grade10,
+                    :pop_total, :pop_grade10, :pop_pristine10, :image_url, :notes
                 )
                 ON CONFLICT(card_name, set_name, card_number, language, edition, is_error)
                 DO UPDATE SET
@@ -261,6 +277,11 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]], db_path: Optional[st
                     error_description = excluded.error_description,
                     est_raw_price = CASE WHEN excluded.est_raw_price > 0 THEN excluded.est_raw_price ELSE master_set_catalog.est_raw_price END,
                     est_grade10_price = CASE WHEN excluded.est_grade10_price > 0 THEN excluded.est_grade10_price ELSE master_set_catalog.est_grade10_price END,
+                    pricecharting_url = CASE WHEN excluded.pricecharting_url != '' THEN excluded.pricecharting_url ELSE master_set_catalog.pricecharting_url END,
+                    pricecharting_raw = CASE WHEN excluded.pricecharting_raw > 0 THEN excluded.pricecharting_raw ELSE master_set_catalog.pricecharting_raw END,
+                    pricecharting_grade10 = CASE WHEN excluded.pricecharting_grade10 > 0 THEN excluded.pricecharting_grade10 ELSE master_set_catalog.pricecharting_grade10 END,
+                    pop_grade10 = CASE WHEN excluded.pop_grade10 > 0 THEN excluded.pop_grade10 ELSE master_set_catalog.pop_grade10 END,
+                    pop_pristine10 = CASE WHEN excluded.pop_pristine10 > 0 THEN excluded.pop_pristine10 ELSE master_set_catalog.pop_pristine10 END,
                     image_url = CASE WHEN excluded.image_url != '' THEN excluded.image_url ELSE master_set_catalog.image_url END,
                     notes = CASE WHEN excluded.notes != '' THEN excluded.notes ELSE master_set_catalog.notes END;
             """, params)
@@ -343,7 +364,8 @@ def get_collection(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
         cursor.execute("""
             SELECT id, card_name, set_name, card_number, grading_company, 
                    grade, grade_label, cert_number, purchase_price, purchase_date,
-                   edition, language, is_error, error_type, is_raw, master_card_id, image_url, notes
+                   edition, language, is_error, error_type, is_raw, pop_grade10, pop_pristine10,
+                   master_card_id, image_url, notes
             FROM my_collection
             ORDER BY purchase_date DESC;
         """)
@@ -359,12 +381,12 @@ def insert_collection_card(card: Dict[str, Any], db_path: Optional[str] = None) 
                 card_name, set_name, card_number, grading_company,
                 grade, grade_label, cert_number, purchase_price, purchase_date,
                 edition, language, is_error, error_type, is_raw,
-                master_card_id, image_url, notes
+                pop_grade10, pop_pristine10, master_card_id, image_url, notes
             ) VALUES (
                 :card_name, :set_name, :card_number, :grading_company,
                 :grade, :grade_label, :cert_number, :purchase_price, :purchase_date,
                 :edition, :language, :is_error, :error_type, :is_raw,
-                :master_card_id, :image_url, :notes
+                :pop_grade10, :pop_pristine10, :master_card_id, :image_url, :notes
             )
         """, {
             "card_name": card.get("card_name", "Vulpix"),
@@ -381,6 +403,8 @@ def insert_collection_card(card: Dict[str, Any], db_path: Optional[str] = None) 
             "is_error": 1 if card.get("is_error") else 0,
             "error_type": card.get("error_type"),
             "is_raw": 1 if card.get("is_raw") else 0,
+            "pop_grade10": int(card.get("pop_grade10") or 0),
+            "pop_pristine10": int(card.get("pop_pristine10") or 0),
             "master_card_id": card.get("master_card_id"),
             "image_url": card.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png"),
             "notes": card.get("notes", ""),

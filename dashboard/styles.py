@@ -1,7 +1,7 @@
 """
 Custom CSS styling and HTML components for The Vulpix Vault Streamlit Dashboard.
 Includes special grade badges (Pristine 10, Black Label 10), Error indicators,
-eBay sniper auction styles, and Master Set progress tracking.
+Population (POP) badges, PriceCharting benchmarks, and Master Set progress tracking.
 """
 
 from typing import Any, Optional
@@ -117,6 +117,29 @@ def apply_custom_styles():
         .slab-box:hover {
             border-color: #ff7a45;
             box-shadow: 0 8px 24px rgba(255, 122, 69, 0.15);
+        }
+
+        /* Population Badges */
+        .badge-pop-1 {
+            background: linear-gradient(135deg, #7c3aed, #4f46e5);
+            color: #ffffff;
+            border: 1px solid #c084fc;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-weight: 800;
+            font-size: 0.72rem;
+            display: inline-block;
+            box-shadow: 0 2px 6px rgba(124, 58, 237, 0.4);
+        }
+        .badge-low-pop {
+            background: rgba(168, 85, 247, 0.2);
+            color: #c084fc;
+            border: 1px solid #a855f7;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.72rem;
+            display: inline-block;
         }
 
         /* Grading Badges */
@@ -242,7 +265,6 @@ def apply_custom_styles():
             font-weight: 800;
             font-size: 0.75rem;
             display: inline-block;
-            animation: pulse 1.5s infinite;
         }
         .sniper-badge-ok {
             background: rgba(34, 197, 94, 0.15);
@@ -259,15 +281,26 @@ def apply_custom_styles():
             background: linear-gradient(135deg, #3b82f6, #1d4ed8);
             color: white !important;
             text-decoration: none;
-            padding: 5px 12px;
+            padding: 5px 10px;
             border-radius: 6px;
             font-weight: 700;
-            font-size: 0.78rem;
+            font-size: 0.75rem;
             display: inline-block;
             transition: opacity 0.2s ease;
         }
         .btn-ebay:hover {
             opacity: 0.9;
+        }
+
+        .btn-pc {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white !important;
+            text-decoration: none;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.72rem;
+            display: inline-block;
         }
 
         .block-container {
@@ -287,7 +320,7 @@ def render_header():
         <div class="vault-header">
             <div>
                 <div class="vault-title">🦊 The Vulpix Vault</div>
-                <div class="vault-subtitle">Master Set Completion Tracker, eBay Sniper & Multi-Tier AI Deal Radar</div>
+                <div class="vault-subtitle">Master Set Completion, PriceCharting Aggregator, PSA Population & AI Deal Sniper</div>
             </div>
             <div style="text-align: right;">
                 <span style="background: rgba(74, 222, 128, 0.15); color: #4ade80; border: 1px solid #4ade80; padding: 6px 14px; border-radius: 20px; font-weight: 700; font-size: 0.85rem;">
@@ -298,6 +331,17 @@ def render_header():
         """,
         unsafe_allow_html=True,
     )
+
+
+def get_pop_badge_html(pop_grade10: int, pop_pristine10: int = 0) -> str:
+    """Returns styled HTML badge for low-pop / ultra-rare population counts."""
+    if pop_grade10 == 1 or (pop_pristine10 == 1 and pop_grade10 <= 3):
+        return '<span class="badge-pop-1">👑 POP 1 OF A KIND</span>'
+    if 1 < pop_grade10 <= 15:
+        return f'<span class="badge-low-pop">💎 ULTRA LOW POP ({pop_grade10})</span>'
+    if 15 < pop_grade10 <= 100:
+        return f'<span class="badge-low-pop" style="background: rgba(59, 130, 246, 0.15); border-color: #3b82f6; color: #60a5fa;">POP {pop_grade10}</span>'
+    return ""
 
 
 def get_grading_badge_html(company: str, grade: Any, grade_label: str = "Gem Mint", is_raw: int = 0) -> str:

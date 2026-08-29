@@ -1,7 +1,7 @@
 """
 The Vulpix Vault - Streamlit Web Dashboard
-Master Set Completion Tracker, eBay Sniper & Watchlist, 1-Click Live eBay Search,
-Interactive CSV Column Mapper & Diagnostics, and Multi-Tier AI Deal Radar.
+Master Set Completion Tracker, PriceCharting Aggregator, PSA/CGC Population (POP) Reports,
+eBay Sniper & Watchlist, 1-Click Live eBay Search, and Multi-Tier AI Deal Radar.
 """
 
 import os
@@ -21,6 +21,8 @@ from db_utils import (
     get_db_path,
     get_master_set_metrics,
     get_portfolio_metrics,
+    get_pricecharting_search_url,
+    get_psa_cert_lookup_url,
     get_sniper_watchlist_df,
     load_collection_df,
     load_deals_df,
@@ -32,7 +34,7 @@ from db_utils import (
     update_collection_card,
     update_master_card,
 )
-from styles import apply_custom_styles, get_grading_badge_html, render_header
+from styles import apply_custom_styles, get_grading_badge_html, get_pop_badge_html, render_header
 
 # Set Streamlit Page Configuration
 st.set_page_config(
@@ -159,6 +161,7 @@ with tab_vault:
                     f_grade_label = st.selectbox("Grade Tier", ["Gem Mint", "Pristine 10", "Black Label 10", "Mint", "Near Mint", "Raw Single"])
                     f_grade_num = st.number_input("Numerical Grade", min_value=1.0, max_value=10.0, value=10.0, step=0.5) if not f_is_raw else 0.0
                     f_cert = st.text_input("Certification Number", placeholder="e.g. 48291039") if not f_is_raw else ""
+                    f_pop = st.number_input("PSA/CGC Pop (Grade 10 Count)", min_value=0, value=0, step=1)
                 with f3:
                     f_lang = st.selectbox("Language", ["English", "Japanese", "German", "French", "Italian", "Spanish", "Korean", "Chinese"])
                     f_price = st.number_input("Purchase Price ($ USD)", min_value=0.0, value=25.0, step=5.0)
@@ -192,6 +195,7 @@ with tab_vault:
                             "is_error": 1 if f_is_err else 0,
                             "error_type": f_err_type if f_is_err else None,
                             "is_raw": f_is_raw,
+                            "pop_grade10": int(f_pop),
                             "image_url": f_img or "https://images.pokemontcg.io/base1/68_hires.png",
                             "notes": f_notes or "",
                         })
@@ -233,6 +237,7 @@ with tab_vault:
                         row.get("grade_label", "Gem Mint"),
                         row.get("is_raw", 0),
                     )
+                    pop_badge_html = get_pop_badge_html(int(row.get("pop_grade10") or 0), int(row.get("pop_pristine10") or 0))
                     gain = row.get("unrealized_gain", 0.0)
                     roi = row.get("roi_percent", 0.0)
                     gain_color = "#4ade80" if gain >= 0 else "#f87171"
@@ -240,7 +245,7 @@ with tab_vault:
                     error_badge = '<span class="badge-error">⚠️ ERROR</span>' if row.get("is_error") == 1 else ""
                     img_src = row["image_url"] if row["image_url"] else "https://images.pokemontcg.io/base1/68_hires.png"
 
-                    # Generate live eBay link
+                    # Generate live eBay & PriceCharting links
                     ebay_search_link = generate_ebay_search_url(
                         card_name=row["card_name"],
                         set_name=row["set_name"],
@@ -250,6 +255,8 @@ with tab_vault:
                         is_raw=bool(row.get("is_raw", 0)),
                         grade_tier=row.get("grade_label"),
                     )
+                    pc_search_link = get_pricecharting_search_url(row["card_name"], row["set_name"], row["card_number"])
+                    psa_cert_link = get_psa_cert_lookup_url(str(row.get("cert_number", "")))
 
                     st.markdown(
                         f"""
@@ -261,7 +268,7 @@ with tab_vault:
                                 </div>
                                 <div style="text-align: right;">
                                     {badge_html}
-                                    <div style="margin-top: 4px;">{error_badge}</div>
+                                    <div style="margin-top: 4px;">{pop_badge_html} {error_badge}</div>
                                 </div>
                             </div>
                             <div style="text-align: center; margin: 10px 0;">
@@ -285,13 +292,14 @@ with tab_vault:
                                     <span style="color: {gain_color}; font-weight: 700;">{gain_sign}${gain:,.2f} ({gain_sign}{roi:.1f}%)</span>
                                 </div>
                             </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; gap: 4px;">
                                 <a href="{ebay_search_link}" target="_blank" class="btn-ebay">
-                                    🔍 Live eBay Prices →
+                                    🔍 Live eBay →
                                 </a>
-                                <span style="font-size: 0.72rem; color: #666;">
-                                    {f"Cert: {row['cert_number']}" if row.get('cert_number') else 'Raw'}
-                                </span>
+                                <a href="{pc_search_link}" target="_blank" class="btn-pc">
+                                    📊 PriceCharting
+                                </a>
+                                {f'<a href="{psa_cert_link}" target="_blank" style="color: #94a3b8; font-size: 0.72rem; text-decoration: underline;">Cert #{row["cert_number"]}</a>' if row.get("cert_number") else '<span style="font-size: 0.72rem; color: #666;">Raw</span>'}
                             </div>
                         </div>
                         """,
@@ -308,6 +316,8 @@ with tab_vault:
                                 ed_co = st.selectbox("Grading Company", ["PSA", "CGC", "BGS", "ARS", "ACE", "SGC", "RAW"], index=["PSA", "CGC", "BGS", "ARS", "ACE", "SGC", "RAW"].index(row["grading_company"]) if row["grading_company"] in ["PSA", "CGC", "BGS", "ARS", "ACE", "SGC", "RAW"] else 0)
                                 ed_grade = st.number_input("Grade", min_value=0.0, max_value=10.0, value=float(row.get("grade", 10.0)), step=0.5)
                                 ed_tier = st.selectbox("Grade Label", ["Gem Mint", "Pristine 10", "Black Label 10", "Mint", "Near Mint", "Raw Single"])
+                                ed_cert = st.text_input("Cert Number", value=str(row.get("cert_number", "")))
+                                ed_pop = st.number_input("Pop (Grade 10 Count)", min_value=0, value=int(row.get("pop_grade10") or 0))
                                 ed_price = st.number_input("Purchase Price ($)", min_value=0.0, value=float(row["purchase_price"]), step=5.0)
                                 ed_img = st.text_input("Image URL", value=str(row.get("image_url", "")))
                                 ed_notes = st.text_area("Notes", value=str(row.get("notes", "")))
@@ -319,7 +329,7 @@ with tab_vault:
                                         "grading_company": ed_co,
                                         "grade": ed_grade,
                                         "grade_label": ed_tier,
-                                        "cert_number": str(row.get("cert_number", "")),
+                                        "cert_number": ed_cert,
                                         "purchase_price": ed_price,
                                         "purchase_date": str(row.get("purchase_date", "2024-01-01")),
                                         "edition": str(row.get("edition", "Unlimited")),
@@ -327,6 +337,7 @@ with tab_vault:
                                         "is_error": int(row.get("is_error", 0)),
                                         "error_type": row.get("error_type"),
                                         "is_raw": 1 if ed_co == "RAW" else 0,
+                                        "pop_grade10": int(ed_pop),
                                         "image_url": ed_img,
                                         "notes": ed_notes,
                                     })
@@ -341,7 +352,7 @@ with tab_vault:
             st.dataframe(
                 df_col[[
                     "card_name", "set_name", "card_number", "grading_company",
-                    "grade", "grade_label", "edition", "language", "purchase_price",
+                    "grade", "grade_label", "edition", "language", "pop_grade10", "purchase_price",
                     "current_market_value", "unrealized_gain", "roi_percent", "purchase_date", "notes"
                 ]].rename(columns={
                     "card_name": "Card Name",
@@ -352,6 +363,7 @@ with tab_vault:
                     "grade_label": "Grade Tier",
                     "edition": "Edition",
                     "language": "Lang",
+                    "pop_grade10": "Pop (10)",
                     "purchase_price": "Cost ($)",
                     "current_market_value": "Market ($)",
                     "unrealized_gain": "Gain ($)",
@@ -394,7 +406,7 @@ with tab_master:
     # Filter Controls
     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
     with m_col1:
-        m_view = st.selectbox("Status Filter", ["All Master Cards", "❌ Missing Cards Only", "✅ Owned Cards Only", "⚠️ Error Cards Only"])
+        m_view = st.selectbox("Status Filter", ["All Master Cards", "❌ Missing Cards Only", "✅ Owned Cards Only", "💎 Low Pop (<20 PSA 10)", "⚠️ Error Cards Only"])
     with m_col2:
         m_langs = ["All Languages"] + sorted(df_master["language"].dropna().unique().tolist())
         m_sel_lang = st.selectbox("Language Filter", m_langs)
@@ -410,6 +422,8 @@ with tab_master:
         filtered_master = filtered_master[~filtered_master["is_owned"]]
     elif m_view == "✅ Owned Cards Only":
         filtered_master = filtered_master[filtered_master["is_owned"]]
+    elif m_view == "💎 Low Pop (<20 PSA 10)":
+        filtered_master = filtered_master[(filtered_master["pop_grade10"] > 0) & (filtered_master["pop_grade10"] <= 20)]
     elif m_view == "⚠️ Error Cards Only":
         filtered_master = filtered_master[filtered_master["is_error"] == 1]
 
@@ -442,9 +456,10 @@ with tab_master:
                     else '<span style="background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #f87171; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">❌ MISSING</span>'
                 )
                 err_badge = '<span class="badge-error" style="font-size: 0.68rem;">⚠️ ERROR</span>' if row["is_error"] == 1 else ""
+                pop_badge = get_pop_badge_html(int(row.get("pop_grade10") or 0), int(row.get("pop_pristine10") or 0))
                 img_src = row["image_url"] if row["image_url"] else "https://images.pokemontcg.io/base1/68_hires.png"
 
-                # 1-Click Search URLs for Raw and Grade 10
+                # 1-Click Search URLs for Raw, Grade 10, and PriceCharting
                 raw_ebay_url = generate_ebay_search_url(
                     card_name=row["card_name"],
                     set_name=row["set_name"],
@@ -461,6 +476,7 @@ with tab_master:
                     language=row["language"],
                     grade_tier="Gem Mint 10",
                 )
+                pc_url = row.get("pricecharting_url") or get_pricecharting_search_url(row["card_name"], row["set_name"], row["card_number"])
 
                 st.markdown(
                     f"""
@@ -472,24 +488,30 @@ with tab_master:
                         <div style="text-align: center; margin: 8px 0;">
                             <img src="{img_src}" style="max-height: 155px; max-width: 100%; border-radius: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);" />
                         </div>
-                        <div style="font-weight: 800; font-size: 0.92rem; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['card_name']}</div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                            <div style="font-weight: 800; font-size: 0.92rem; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['card_name']}</div>
+                            {pop_badge}
+                        </div>
                         <div style="color: #8c8d9a; font-size: 0.78rem; margin-bottom: 8px;">{row['set_name']} #{row['card_number']} ({row['edition']})</div>
                         <div style="background: #111217; padding: 6px 8px; border-radius: 6px; font-size: 0.78rem; margin-bottom: 8px;">
-                            <div style="display: flex; justify-content: space-between;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
                                 <span style="color: #8c8d9a;">Est Raw:</span>
                                 <span style="color: #ffd591; font-weight: 700;">${row['est_raw_price']:,.2f}</span>
                             </div>
                             <div style="display: flex; justify-content: space-between;">
-                                <span style="color: #8c8d9a;">Est 10:</span>
+                                <span style="color: #8c8d9a;">Est PSA 10:</span>
                                 <span style="color: #f59e0b; font-weight: 700;">${row['est_grade10_price']:,.2f}</span>
                             </div>
                         </div>
-                        <div style="display: flex; gap: 4px; margin-bottom: 6px;">
-                            <a href="{raw_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 4px;">
-                                🔍 Raw eBay
+                        <div style="display: flex; gap: 4px; margin-bottom: 4px;">
+                            <a href="{raw_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 3px;">
+                                🔍 Raw
                             </a>
-                            <a href="{g10_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 4px; background: linear-gradient(135deg, #f59e0b, #d97706);">
-                                💎 PSA 10 eBay
+                            <a href="{g10_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 3px; background: linear-gradient(135deg, #f59e0b, #d97706);">
+                                💎 PSA 10
+                            </a>
+                            <a href="{pc_url}" target="_blank" class="btn-pc" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 3px;">
+                                📊 Charting
                             </a>
                         </div>
                     </div>
@@ -523,6 +545,7 @@ with tab_master:
                                     "is_error": row["is_error"],
                                     "error_type": row.get("error_description"),
                                     "is_raw": 1 if q_cond == "Raw Single" else 0,
+                                    "pop_grade10": int(row.get("pop_grade10") or 0),
                                     "master_card_id": row["id"],
                                     "image_url": row["image_url"],
                                     "notes": f"Added from Master Set Catalog.",
@@ -540,6 +563,7 @@ with tab_master:
                             em_lang = st.text_input("Language", value=row["language"])
                             em_raw_p = st.number_input("Est Raw Price ($)", min_value=0.0, value=float(row["est_raw_price"]), step=2.0)
                             em_g10_p = st.number_input("Est Grade 10 Price ($)", min_value=0.0, value=float(row["est_grade10_price"]), step=10.0)
+                            em_pop = st.number_input("PSA/CGC Pop (Grade 10)", min_value=0, value=int(row.get("pop_grade10") or 0))
                             em_img = st.text_input("Image URL (Replace/Flag)", value=row["image_url"])
                             em_err = st.checkbox("Is Error Card?", value=bool(row["is_error"]))
                             em_notes = st.text_area("Notes / Error Description", value=row["notes"] or "")
@@ -556,6 +580,9 @@ with tab_master:
                                     "error_description": em_notes if em_err else "",
                                     "est_raw_price": em_raw_p,
                                     "est_grade10_price": em_g10_p,
+                                    "pricecharting_raw": em_raw_p,
+                                    "pricecharting_grade10": em_g10_p,
+                                    "pop_grade10": int(em_pop),
                                     "image_url": em_img,
                                     "notes": em_notes,
                                 })
@@ -564,15 +591,14 @@ with tab_master:
     else:
         disp_df = filtered_master[[
             "is_owned", "release_year", "card_name", "set_name", "card_number",
-            "edition", "language", "is_error", "est_raw_price", "est_grade10_price", "notes"
+            "edition", "language", "pop_grade10", "est_raw_price", "est_grade10_price", "notes"
         ]].copy()
         disp_df["Status"] = disp_df["is_owned"].apply(lambda x: "✅ OWNED" if x else "❌ MISSING")
-        disp_df["Error?"] = disp_df["is_error"].apply(lambda x: "⚠️ Yes" if x == 1 else "No")
 
         st.dataframe(
             disp_df[[
                 "Status", "release_year", "card_name", "set_name", "card_number",
-                "edition", "language", "Error?", "est_raw_price", "est_grade10_price", "notes"
+                "edition", "language", "pop_grade10", "est_raw_price", "est_grade10_price", "notes"
             ]].rename(columns={
                 "release_year": "Year",
                 "card_name": "Card Name",
@@ -580,6 +606,7 @@ with tab_master:
                 "card_number": "#",
                 "edition": "Edition",
                 "language": "Language",
+                "pop_grade10": "PSA 10 Pop",
                 "est_raw_price": "Est Raw ($)",
                 "est_grade10_price": "Est 10 ($)",
                 "notes": "Notes",
@@ -986,7 +1013,7 @@ with tab_settings:
             try:
                 from notifier import send_gotify_alert
                 test_listing = {
-                    "listing_id": "test_alert_003",
+                    "listing_id": "test_alert_004",
                     "title": "Vulpix 1st Edition PSA 10 (TEST GOTIFY PUSH)",
                     "card_name": "Vulpix",
                     "grading_company": "PSA",
