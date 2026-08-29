@@ -16,6 +16,8 @@ HEADERS = {
     "Accept": "application/json, text/html",
 }
 
+DEFAULT_CARD_BACK_IMAGE = "https://tcg.pokemon.com/assets/img/global/tcg-card-back-2x.jpg"
+
 # Curated lookup dictionary mapping (normalized_set, normalized_number) to exact card metadata
 VULPIX_KNOWN_SET_INDEX = {
     # --- Vintage & Wizards of the Coast (WotC) ---
@@ -320,28 +322,35 @@ def extract_base_number(card_num_str: str) -> str:
     return s.lower()
 
 
+_API_QUERY_CACHE: Dict[str, Any] = {}
+
 def query_pokemontcg_api(set_name: str, card_number: str, card_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
-    Queries the official Pokémon TCG API (pokemontcg.io)
+    Queries the official Pokémon TCG API (pokemontcg.io) with in-memory caching.
     STRICT VALIDATION: Only accepts cards whose name contains 'Vulpix'.
     """
+    cache_key = f"{set_name}:{card_number}:{card_name}"
+    if cache_key in _API_QUERY_CACHE:
+        return _API_QUERY_CACHE[cache_key]
+
     clean_num = extract_base_number(card_number)
     clean_set = re.sub(r"\([0-9]{4}\)", "", set_name).strip()
 
-    queries = [
-        f'name:Vulpix number:{clean_num}',
-        f'name:Vulpix set.name:"{clean_set}"',
-        f'number:{clean_num} set.name:"{clean_set}"',
-        f'name:Vulpix',
-    ]
+    queries = []
+    if clean_num and clean_set:
+        queries.append(f'name:Vulpix number:{clean_num} set.name:"{clean_set}"')
+    if clean_num:
+        queries.append(f'name:Vulpix number:{clean_num}')
+    if clean_set:
+        queries.append(f'name:Vulpix set.name:"{clean_set}"')
 
     for q in queries:
         try:
             encoded_q = urllib.parse.quote(q)
-            api_url = f"https://api.pokemontcg.io/v2/cards?q={encoded_q}&pageSize=10"
+            api_url = f"https://api.pokemontcg.io/v2/cards?q={encoded_q}&pageSize=5"
 
             req = urllib.request.Request(api_url, headers=HEADERS)
-            with urllib.request.urlopen(req, timeout=6) as response:
+            with urllib.request.urlopen(req, timeout=2.5) as response:
                 if response.status == 200:
                     data = json.loads(response.read().decode("utf-8"))
                     cards = data.get("data", [])
@@ -353,26 +362,29 @@ def query_pokemontcg_api(set_name: str, card_number: str, card_name: Optional[st
                             rel_date = card.get("set", {}).get("releaseDate", "2000/01/01")
                             year = int(rel_date.split("/")[0]) if "/" in rel_date else (int(rel_date.split("-")[0]) if "-" in rel_date else 2000)
 
-                            return {
+                            res = {
                                 "card_name": cname,
                                 "set_name": card.get("set", {}).get("name", set_name),
                                 "card_number": card.get("number", card_number),
                                 "release_year": year,
                                 "rarity": card.get("rarity", "Common"),
-                                "image_url": img or "https://images.pokemontcg.io/base1/68_hires.png",
+                                "image_url": img or DEFAULT_CARD_BACK_IMAGE,
                             }
+                            _API_QUERY_CACHE[cache_key] = res
+                            return res
         except Exception:
             continue
 
+    _API_QUERY_CACHE[cache_key] = None
     return None
 
 
 def resolve_card_metadata(
-    set_name: str, card_number: str, card_name: Optional[str] = None
+    set_name: str, card_number: str, card_name: Optional[str] = None, allow_network: bool = False
 ) -> Dict[str, Any]:
     """
     Authoritative resolver: checks curated 200+ Vulpix index first,
-    then queries live Pokémon TCG databases to fill in missing names and images.
+    then optionally queries live Pokémon TCG databases to fill in missing names and images.
     Guarantees that a non-Vulpix image (like Magikarp) is NEVER returned.
     """
     clean_set_norm = normalize_str(set_name)
@@ -391,24 +403,27 @@ def resolve_card_metadata(
                 "source": "curated_master_index",
             }
 
-    # 2. Live API lookup from Pokémon TCG database (with strict Vulpix name filtering)
-    api_result = query_pokemontcg_api(set_name, card_number, card_name)
-    if api_result:
-        return {
-            "card_name": api_result["card_name"],
-            "set_name": api_result["set_name"],
-            "card_number": api_result["card_number"],
-            "release_year": api_result["release_year"],
-            "rarity": api_result["rarity"],
-            "image_url": api_result["image_url"],
-            "source": "pokemon_tcg_api",
-        }
+    # 2. Live API lookup from Pokémon TCG database if network enabled
+    if allow_network:
+        api_result = query_pokemontcg_api(set_name, card_number, card_name)
+        if api_result:
+            return {
+                "card_name": api_result["card_name"],
+                "set_name": api_result["set_name"],
+                "card_number": api_result["card_number"],
+                "release_year": api_result["release_year"],
+                "rarity": api_result["rarity"],
+                "image_url": api_result["image_url"],
+                "source": "pokemon_tcg_api",
+            }
 
     # 3. Fallback: intelligent name derivation based on set
     inferred_name = card_name or "Vulpix"
-    img_fallback = "https://images.pokemontcg.io/base1/68_hires.png"
+    img_fallback = DEFAULT_CARD_BACK_IMAGE
 
-    if "gym heroes" in clean_set_norm or "gym challenge" in clean_set_norm:
+    if "base set" in clean_set_norm and clean_num_norm in ["68"]:
+        img_fallback = "https://images.pokemontcg.io/base1/68_hires.png"
+    elif "gym heroes" in clean_set_norm or "gym challenge" in clean_set_norm:
         if clean_num_norm in ["65", "66"]:
             inferred_name = "Blaine's Vulpix"
             img_fallback = "https://images.pokemontcg.io/gym1/65_hires.png"

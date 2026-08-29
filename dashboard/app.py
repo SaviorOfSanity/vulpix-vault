@@ -35,11 +35,11 @@ from db_utils import (
     send_gotify_alert,
     set_system_setting,
     sync_from_google_sheets_url,
-    sync_master_catalog_from_df,
     update_card_image_override,
     update_collection_card,
     update_master_card,
 )
+from metadata_resolver import DEFAULT_CARD_BACK_IMAGE
 from styles import apply_custom_styles, get_edition_badge_html, get_grading_badge_html, get_pop_badge_html, render_header
 
 # Set Streamlit Page Configuration
@@ -212,7 +212,7 @@ with tab_portfolio:
                     err_badge = '<span class="badge-error">⚠️ ERROR</span>' if row["is_error"] == 1 else ""
                     pop_badge = get_pop_badge_html(int(row.get("pop_grade10") or 0), int(row.get("pop_pristine10") or 0))
 
-                    img_src = row["image_url"] if row["image_url"] else "https://images.pokemontcg.io/base1/68_hires.png"
+                    img_src = row["image_url"] if row["image_url"] else DEFAULT_CARD_BACK_IMAGE
                     psa_link = get_psa_cert_lookup_url(row["cert_number"]) if row["cert_number"] else None
                     cert_display = f'<a href="{psa_link}" target="_blank" style="color: #60a5fa; text-decoration: none; font-weight: 700;">#{row["cert_number"]} ↗</a>' if psa_link else (f'#{row["cert_number"]}' if row["cert_number"] else 'Raw Single')
 
@@ -446,7 +446,7 @@ with tab_master_set:
                 ed_badge = get_edition_badge_html(row.get("edition", "Unlimited"))
                 err_badge = '<span class="badge-error">⚠️ ERROR</span>' if row["is_error"] == 1 else ""
                 pop_badge = get_pop_badge_html(int(row.get("pop_grade10") or 0), int(row.get("pop_pristine10") or 0))
-                img_src = row["image_url"] if row["image_url"] else "https://images.pokemontcg.io/base1/68_hires.png"
+                img_src = row["image_url"] if row["image_url"] else DEFAULT_CARD_BACK_IMAGE
 
                 # 1-Click Search URLs for Raw, Grade 10, and PriceCharting
                 raw_ebay_url = generate_ebay_search_url(
@@ -590,6 +590,12 @@ with tab_master_set:
                                 st.success("Saved!")
                                 st.rerun()
 
+                        if row["image_url"] and row["image_url"] != DEFAULT_CARD_BACK_IMAGE:
+                            if st.button("🚩 Reset Image to Card Back", key=f"flag_edit_{row['id']}"):
+                                update_card_image_override("master_set_catalog", row["id"], DEFAULT_CARD_BACK_IMAGE)
+                                st.success("Reset image to Card Back placeholder!")
+                                st.rerun()
+
                 with act3:
                     with st.popover("ℹ️ Info"):
                         st.markdown(f"#### 🔍 {row['card_name']}")
@@ -611,6 +617,13 @@ with tab_master_set:
                         st.markdown(f"- **Est. PSA 10 Value:** `${row['est_grade10_price']:,.2f}`")
                         if row.get("pop_grade10"):
                             st.markdown(f"- **PSA 10 Population:** `{row['pop_grade10']}`")
+
+                        if row["image_url"] and row["image_url"] != DEFAULT_CARD_BACK_IMAGE:
+                            if st.button("🚩 Flag Image as Incorrect", key=f"flag_info_{row['id']}"):
+                                update_card_image_override("master_set_catalog", row["id"], DEFAULT_CARD_BACK_IMAGE)
+                                st.success("Image reset to Card Back placeholder!")
+                                st.rerun()
+
                         if pc_url and str(pc_url).startswith("http"):
                             st.markdown(f'<a href="{pc_url}" target="_blank" class="btn-pc" style="display:block; text-align:center; padding: 6px 12px; font-size:0.82rem; margin-top:8px; text-decoration:none;">📊 View PriceCharting History ↗</a>', unsafe_allow_html=True)
     else:

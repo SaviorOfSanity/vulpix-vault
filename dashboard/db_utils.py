@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
-from metadata_resolver import VULPIX_KNOWN_SET_INDEX, extract_base_number, normalize_str, resolve_card_metadata
+from metadata_resolver import DEFAULT_CARD_BACK_IMAGE, VULPIX_KNOWN_SET_INDEX, extract_base_number, normalize_str, resolve_card_metadata
 
 DEFAULT_DB_PATH = os.getenv("DB_PATH", "/data/vulpix_vault.db")
 
@@ -424,21 +424,37 @@ def auto_enrich_master_catalog(force_all: bool = True) -> Tuple[int, str]:
                 should_update = True
 
             if should_update:
-                cursor.execute("""
-                    UPDATE master_set_catalog SET
-                        card_name = :new_name,
-                        image_url = :new_img,
-                        release_year = :new_year,
-                        rarity = :new_rarity
-                    WHERE id = :id;
-                """, {
-                    "new_name": new_name or c["card_name"],
-                    "new_img": new_img or c["image_url"],
-                    "new_year": new_year or c["release_year"],
-                    "new_rarity": new_rarity or c["rarity"],
-                    "id": c["id"],
-                })
-                updated += 1
+                try:
+                    cursor.execute("""
+                        UPDATE master_set_catalog SET
+                            card_name = :new_name,
+                            image_url = :new_img,
+                            release_year = :new_year,
+                            rarity = :new_rarity
+                        WHERE id = :id;
+                    """, {
+                        "new_name": new_name or c["card_name"],
+                        "new_img": new_img or c["image_url"],
+                        "new_year": new_year or c["release_year"],
+                        "new_rarity": new_rarity or c["rarity"],
+                        "id": c["id"],
+                    })
+                    updated += 1
+                except sqlite3.IntegrityError:
+                    # If updating card_name collides with an existing record, update image and metadata safely
+                    cursor.execute("""
+                        UPDATE master_set_catalog SET
+                            image_url = :new_img,
+                            release_year = :new_year,
+                            rarity = :new_rarity
+                        WHERE id = :id;
+                    """, {
+                        "new_img": new_img or c["image_url"],
+                        "new_year": new_year or c["release_year"],
+                        "new_rarity": new_rarity or c["rarity"],
+                        "id": c["id"],
+                    })
+                    updated += 1
 
     return updated, f"Successfully verified and updated metadata & high-res images for {updated} cards!"
 
@@ -538,8 +554,10 @@ def parse_card_row_from_sheet(row: Any) -> Dict[str, Any]:
     # 6. Metadata Resolver for Official Scans
     clean_set_norm = normalize_str(set_name)
     clean_num_norm = extract_base_number(card_num)
-    img_url = "https://images.pokemontcg.io/base1/68_hires.png"
-    pop_grade10 = 0
+    img_url = DEFAULT_CARD_BACK_IMAGE
+
+    if "base set" in clean_set_norm and clean_num_norm in ["68"]:
+        img_url = "https://images.pokemontcg.io/base1/68_hires.png"
 
     for (idx_set, idx_num), meta in VULPIX_KNOWN_SET_INDEX.items():
         if idx_num == clean_num_norm and (idx_set in clean_set_norm or clean_set_norm in idx_set):
@@ -826,7 +844,7 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]]) -> int:
                 "pop_total": int(card.get("pop_total") or 0),
                 "pop_grade10": int(card.get("pop_grade10") or 0),
                 "pop_pristine10": int(card.get("pop_pristine10") or 0),
-                "image_url": img_url or "https://images.pokemontcg.io/base1/68_hires.png",
+                "image_url": img_url or DEFAULT_CARD_BACK_IMAGE,
                 "notes": str(card.get("notes", "")).strip(),
             }
             cursor.execute("""
@@ -904,7 +922,7 @@ def update_master_card(card_id: int, updates: Dict[str, Any]) -> None:
             "pricecharting_grade10": float(updates.get("pricecharting_grade10", 0.0)),
             "pop_grade10": int(updates.get("pop_grade10", 0)),
             "pop_pristine10": int(updates.get("pop_pristine10", 0)),
-            "image_url": updates.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png"),
+            "image_url": updates.get("image_url") or DEFAULT_CARD_BACK_IMAGE,
             "notes": updates.get("notes", ""),
         })
 
@@ -1213,7 +1231,7 @@ def add_card_to_collection(card: Dict[str, Any]) -> int:
             "pop_grade10": int(card.get("pop_grade10") or 0),
             "pop_pristine10": int(card.get("pop_pristine10") or 0),
             "master_card_id": master_id,
-            "image_url": card.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png"),
+            "image_url": card.get("image_url") or DEFAULT_CARD_BACK_IMAGE,
             "notes": card.get("notes", ""),
         })
         return cursor.lastrowid or 0
@@ -1263,7 +1281,7 @@ def update_collection_card(card_id: int, updates: Dict[str, Any]) -> None:
             "is_raw": 1 if updates.get("is_raw") else 0,
             "pop_grade10": int(updates.get("pop_grade10", 0)),
             "pop_pristine10": int(updates.get("pop_pristine10", 0)),
-            "image_url": updates.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png"),
+            "image_url": updates.get("image_url") or DEFAULT_CARD_BACK_IMAGE,
             "notes": updates.get("notes", ""),
         })
 
