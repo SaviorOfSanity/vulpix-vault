@@ -1,0 +1,46 @@
+services:
+  vulpix-dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: vulpix-dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      - DB_PATH=/data/vulpix_vault.db
+    volumes:
+      - ./data:/data
+    depends_on:
+      - gotify
+
+  vulpix-scraper:
+    build:
+      context: ./scraper
+      dockerfile: Dockerfile
+    container_name: vulpix-scraper
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DB_PATH=/data/vulpix_vault.db
+      - GOTIFY_URL=http://gotify:80
+    volumes:
+      - ./data:/data
+    depends_on:
+      - gotify
+
+  gotify:
+    image: gotify/server:latest
+    container_name: vulpix-gotify
+    restart: unless-stopped
+    ports:
+      - "8070:80"
+    environment:
+      - GOTIFY_DEFAULTUSER_NAME=admin
+      - GOTIFY_DEFAULTUSER_PASS=admin
+    volumes:
+      - gotify_data:/app/data
+
+volumes:
+  gotify_data:
