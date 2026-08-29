@@ -57,7 +57,7 @@ cp .env.example .env
 Edit `.env` with your API keys:
 ```env
 # Google Gemini API key
-GEMINI_API_KEY=AIzaSy...
+GEMINI_API_KEY=
 
 # Gotify Application Token (generated in Gotify UI)
 GOTIFY_APP_TOKEN=your_gotify_token_here
