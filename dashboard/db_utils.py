@@ -1,6 +1,7 @@
 """
 Database utility module for Streamlit Dashboard.
 100% Self-contained: manages SQLite WAL mode, Master Set catalog, collection CRUD,
+automatic card name verification and image enrichment via Pokemon.com & Pokecardex,
 eBay search query generation, PriceCharting aggregated prices, PSA/CGC Population reports,
 Gotify push dispatcher, sniper watchlist, Google Sheets sync, and CSV diagnostics.
 """
@@ -16,6 +17,8 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
+
+from metadata_resolver import resolve_card_metadata
 
 DEFAULT_DB_PATH = os.getenv("DB_PATH", "/data/vulpix_vault.db")
 
@@ -312,6 +315,49 @@ def send_gotify_alert(
 
 
 # =============================================================
+# Automated Card Metadata & Image Enrichment
+# =============================================================
+
+def auto_enrich_master_catalog() -> Tuple[int, str]:
+    """
+    Iterates through all cards in master_set_catalog, resolves missing/generic names,
+    and grabs official high-res card scans from Pokemon.com / Pokecardex.
+    """
+    ensure_tables_exist()
+    updated = 0
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, card_name, set_name, card_number, release_year, rarity, image_url FROM master_set_catalog;")
+        cards = [dict(r) for r in cursor.fetchall()]
+
+        for c in cards:
+            resolved = resolve_card_metadata(c["set_name"], c["card_number"], c["card_name"])
+            new_name = resolved["card_name"] if (c["card_name"] == "Vulpix" and resolved["card_name"] != "Vulpix") else c["card_name"]
+            new_img = resolved["image_url"] if (not c["image_url"] or c["image_url"] == "https://images.pokemontcg.io/base1/68_hires.png") else c["image_url"]
+            new_year = resolved["release_year"] if c["release_year"] == 2000 and resolved["release_year"] != 2000 else c["release_year"]
+            new_rarity = resolved["rarity"] if c["rarity"] == "Common" and resolved["rarity"] != "Common" else c["rarity"]
+
+            if new_name != c["card_name"] or new_img != c["image_url"] or new_year != c["release_year"] or new_rarity != c["rarity"]:
+                cursor.execute("""
+                    UPDATE master_set_catalog SET
+                        card_name = :new_name,
+                        image_url = :new_img,
+                        release_year = :new_year,
+                        rarity = :new_rarity
+                    WHERE id = :id;
+                """, {
+                    "new_name": new_name,
+                    "new_img": new_img,
+                    "new_year": new_year,
+                    "new_rarity": new_rarity,
+                    "id": c["id"],
+                })
+                updated += 1
+
+    return updated, f"Successfully verified and updated metadata & high-res images for {updated} cards!"
+
+
+# =============================================================
 # Sniper Watchlist Operations
 # =============================================================
 
@@ -386,6 +432,23 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]]) -> int:
             s_name = str(card.get("set_name", "Unknown Set")).strip()
             c_num = str(card.get("card_number", "")).strip()
 
+            # Automatic metadata resolution for variant names & images
+            resolved = resolve_card_metadata(s_name, c_num, c_name)
+            if c_name.lower() in ["vulpix", "", "none", "nan", "null"] and resolved["card_name"] != "Vulpix":
+                c_name = resolved["card_name"]
+
+            img_url = str(card.get("image_url") or "").strip()
+            if (not img_url or img_url == "https://images.pokemontcg.io/base1/68_hires.png") and resolved.get("image_url"):
+                img_url = resolved["image_url"]
+
+            year_val = int(card.get("release_year") or 2000)
+            if year_val == 2000 and resolved.get("release_year") != 2000:
+                year_val = resolved["release_year"]
+
+            rarity_val = str(card.get("rarity", "Common")).strip()
+            if rarity_val == "Common" and resolved.get("rarity") != "Common":
+                rarity_val = resolved["rarity"]
+
             pc_url = str(card.get("pricecharting_url") or "").strip()
             if not pc_url:
                 pc_url = get_pricecharting_search_url(c_name, s_name, c_num)
@@ -394,10 +457,10 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]]) -> int:
                 "card_name": c_name,
                 "set_name": s_name,
                 "card_number": c_num,
-                "release_year": int(card.get("release_year") or 2000),
+                "release_year": year_val,
                 "language": str(card.get("language", "English")).strip(),
                 "edition": str(card.get("edition", "Unlimited")).strip(),
-                "rarity": str(card.get("rarity", "Common")).strip(),
+                "rarity": rarity_val,
                 "is_error": 1 if card.get("is_error") in [1, True, "1", "true", "True", "yes"] else 0,
                 "error_description": str(card.get("error_description", "")).strip(),
                 "est_raw_price": float(card.get("est_raw_price") or 0.0),
@@ -409,7 +472,7 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]]) -> int:
                 "pop_total": int(card.get("pop_total") or 0),
                 "pop_grade10": int(card.get("pop_grade10") or 0),
                 "pop_pristine10": int(card.get("pop_pristine10") or 0),
-                "image_url": str(card.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png")).strip(),
+                "image_url": img_url or "https://images.pokemontcg.io/base1/68_hires.png",
                 "notes": str(card.get("notes", "")).strip(),
             }
             cursor.execute("""
@@ -588,7 +651,7 @@ def sync_master_catalog_from_df(
 ) -> Tuple[int, str, List[str]]:
     """
     Parses any CSV or Google Sheets dataframe with dynamic or manual column mappings.
-    Returns: (imported_count, summary_message, list_of_diagnostics_or_skipped_reasons).
+    Auto-enriches missing/generic card names (e.g. Blaine's Vulpix) and fetches high-res images.
     """
     ensure_tables_exist()
     if df_input.empty:
@@ -660,10 +723,17 @@ def sync_master_catalog_from_df(
             return default
 
     for idx, row in df_input.iterrows():
-        c_name = str(row.get(col_map.get("card_name"), "Vulpix")).strip()
-        if not c_name or c_name.lower() in ["nan", "null", "none", ""]:
-            diagnostics.append(f"Row {idx+1}: Skipped because Card Name was blank.")
+        raw_name = str(row.get(col_map.get("card_name"), "Vulpix")).strip()
+        set_val = str(row.get(col_map.get("set_name"), "Unknown Set")).strip()
+        card_num_val = str(row.get(col_map.get("card_number"), "")).strip()
+
+        if (not raw_name or raw_name.lower() in ["nan", "null", "none", ""]) and not set_val:
+            diagnostics.append(f"Row {idx+1}: Skipped because Card Name & Set were blank.")
             continue
+
+        # Automated Metadata Resolution & Verification
+        resolved = resolve_card_metadata(set_val, card_num_val, raw_name)
+        c_name = resolved["card_name"] if (raw_name.lower() in ["vulpix", "", "none", "nan", "null"] and resolved["card_name"] != "Vulpix") else (raw_name or "Vulpix")
 
         raw_p = parse_float(row.get(col_map.get("est_raw_price")), 2.0)
         g10_p = parse_float(row.get(col_map.get("est_grade10_price")), 45.0)
@@ -671,18 +741,20 @@ def sync_master_catalog_from_df(
         err_val = row.get(col_map.get("is_error"), 0)
         is_err = 1 if str(err_val).lower() in ["1", "true", "yes", "error"] else 0
 
-        year_val = row.get(col_map.get("release_year"), 2000)
+        year_val = row.get(col_map.get("release_year"), resolved.get("release_year", 2000))
         try:
-            year_int = int(re.sub(r"[^\d]", "", str(year_val))[:4]) if str(year_val) else 2000
+            year_int = int(re.sub(r"[^\d]", "", str(year_val))[:4]) if str(year_val) else resolved.get("release_year", 2000)
         except ValueError:
-            year_int = 2000
+            year_int = resolved.get("release_year", 2000)
 
-        set_val = str(row.get(col_map.get("set_name"), "Unknown Set")).strip()
-        card_num_val = str(row.get(col_map.get("card_number"), "")).strip()
         lang_val = str(row.get(col_map.get("language"), "English")).strip()
         ed_val = str(row.get(col_map.get("edition"), "Unlimited")).strip()
-        rarity_val = str(row.get(col_map.get("rarity"), "Common")).strip()
-        img_val = str(row.get(col_map.get("image_url"), "https://images.pokemontcg.io/base1/68_hires.png")).strip()
+        rarity_val = str(row.get(col_map.get("rarity"), resolved.get("rarity", "Common"))).strip()
+
+        img_val = str(row.get(col_map.get("image_url"), "")).strip()
+        if not img_val or img_val == "https://images.pokemontcg.io/base1/68_hires.png":
+            img_val = resolved.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png")
+
         notes_val = str(row.get(col_map.get("notes"), "")).strip()
         pop_10_val = parse_int(row.get(col_map.get("pop_grade10")), 0)
 
@@ -737,7 +809,7 @@ def sync_master_catalog_from_df(
             add_card_to_collection(oc)
             owned_added += 1
 
-    msg = f"Successfully synced {upsert_count} cards into Master Set Catalog!"
+    msg = f"Successfully synced and verified {upsert_count} cards into Master Set Catalog!"
     if owned_added > 0:
         msg += f" (Also imported {owned_added} cards marked as Owned into your Vault)."
     return upsert_count, msg, diagnostics
@@ -770,7 +842,7 @@ def sync_from_google_sheets_url(sheet_url: str) -> Tuple[int, str, List[str]]:
 
 
 def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
-    """Imports user's owned cards from a CSV directly into my_collection."""
+    """Imports user's owned cards from a CSV directly into my_collection with metadata resolution."""
     ensure_tables_exist()
     if df_input.empty:
         return 0, "Uploaded CSV is empty."
@@ -809,9 +881,15 @@ def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
 
     count = 0
     for _, row in df_input.iterrows():
-        c_name = str(row.get(col_map.get("card_name"), "Vulpix")).strip()
-        if not c_name or c_name.lower() in ["nan", "null", ""]:
+        raw_name = str(row.get(col_map.get("card_name"), "Vulpix")).strip()
+        set_val = str(row.get(col_map.get("set_name"), "Unknown Set")).strip()
+        card_num_val = str(row.get(col_map.get("card_number"), "")).strip()
+
+        if not raw_name and not set_val:
             continue
+
+        resolved = resolve_card_metadata(set_val, card_num_val, raw_name)
+        c_name = resolved["card_name"] if (raw_name.lower() in ["vulpix", "", "none", "nan", "null"] and resolved["card_name"] != "Vulpix") else (raw_name or "Vulpix")
 
         co = str(row.get(col_map.get("grading_company"), "RAW")).strip().upper()
         is_raw = 1 if co in ["RAW", "UNGRADED", ""] else 0
@@ -829,10 +907,14 @@ def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
         price_num = parse_num(row.get(col_map.get("purchase_price")), 10.0)
         pop_num = int(parse_num(row.get(col_map.get("pop_grade10")), 0))
 
+        img_val = str(row.get(col_map.get("image_url"), "")).strip()
+        if not img_val or img_val == "https://images.pokemontcg.io/base1/68_hires.png":
+            img_val = resolved.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png")
+
         card_data = {
             "card_name": c_name,
-            "set_name": str(row.get(col_map.get("set_name"), "Unknown Set")).strip(),
-            "card_number": str(row.get(col_map.get("card_number"), "")).strip(),
+            "set_name": set_val,
+            "card_number": card_num_val,
             "grading_company": co if not is_raw else "RAW",
             "grade": grade_num,
             "grade_label": str(row.get(col_map.get("grade_label"), "Gem Mint" if not is_raw else "Raw Single")).strip(),
@@ -845,7 +927,7 @@ def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
             "error_type": None,
             "is_raw": is_raw,
             "pop_grade10": pop_num,
-            "image_url": str(row.get(col_map.get("image_url"), "https://images.pokemontcg.io/base1/68_hires.png")).strip(),
+            "image_url": img_val or "https://images.pokemontcg.io/base1/68_hires.png",
             "notes": str(row.get(col_map.get("notes"), "")).strip(),
         }
         add_card_to_collection(card_data)
@@ -874,20 +956,20 @@ def get_csv_template_bytes() -> bytes:
             "Notes": "1st Edition Base Set.",
         },
         {
-            "Card Name": "Erika's Vulpix",
+            "Card Name": "Blaine's Vulpix",
             "Set Name": "Gym Heroes",
-            "Card Number": "49/132",
+            "Card Number": "65/132",
             "Release Year": 2000,
             "Language": "English",
-            "Edition": "Unlimited",
-            "Rarity": "Uncommon",
+            "Edition": "1st Edition",
+            "Rarity": "Common",
             "Is Error": "No",
-            "Est Raw Price": 2.50,
-            "Est Grade 10 Price": 45.00,
-            "Pop Grade 10": 115,
+            "Est Raw Price": 4.50,
+            "Est Grade 10 Price": 85.00,
+            "Pop Grade 10": 95,
             "Owned": "No",
-            "Image URL": "https://images.pokemontcg.io/gym1/49_hires.png",
-            "Notes": "Gym Heroes Vulpix.",
+            "Image URL": "https://images.pokemontcg.io/gym1/65_hires.png",
+            "Notes": "Gym Heroes Blaine's Vulpix.",
         }
     ])
     output = io.StringIO()

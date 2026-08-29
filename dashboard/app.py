@@ -13,6 +13,7 @@ import streamlit as st
 from db_utils import (
     add_card_to_collection,
     add_to_sniper_watchlist,
+    auto_enrich_master_catalog,
     bulk_import_collection_from_df,
     delete_card_from_collection,
     delete_from_sniper_watchlist,
@@ -396,6 +397,19 @@ with tab_master:
 </div>""",
         unsafe_allow_html=True,
     )
+
+    # Metadata Verification & Auto-Enrichment Banner
+    en_col1, en_col2 = st.columns([3, 1])
+    with en_col1:
+        st.markdown(
+            "💡 *Card name missing or just 'Vulpix'? Click to query Pokemon.com, Pokecardex & 200+ Master Index by set & card number to fill exact names (e.g. Blaine's Vulpix) and official card scans.*"
+        )
+    with en_col2:
+        if st.button("⚡ Auto-Enrich Names & Images", key="btn_auto_enrich_master"):
+            with st.spinner("Resolving missing card names and fetching high-res scans..."):
+                cnt, msg = auto_enrich_master_catalog()
+                st.success(msg)
+                st.rerun()
 
     # Filter Controls
     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
