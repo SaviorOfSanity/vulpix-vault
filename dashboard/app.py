@@ -209,7 +209,7 @@ with tab_portfolio:
                         is_raw=row.get("is_raw", 0),
                     )
                     ed_badge = get_edition_badge_html(row.get("edition", "Unlimited"))
-                    err_badge = f'<span class="badge-error" style="font-size: 0.68rem;">⚠️ {row["error_type"]}</span>' if row["is_error"] == 1 and row.get("error_type") else ('<span class="badge-error">⚠️ ERROR</span>' if row["is_error"] == 1 else '')
+                    err_badge = '<span class="badge-error">⚠️ ERROR</span>' if row["is_error"] == 1 else ""
                     pop_badge = get_pop_badge_html(int(row.get("pop_grade10") or 0), int(row.get("pop_pristine10") or 0))
 
                     img_src = row["image_url"] if row["image_url"] else "https://images.pokemontcg.io/base1/68_hires.png"
@@ -252,9 +252,9 @@ with tab_portfolio:
                     st.markdown(card_box_html, unsafe_allow_html=True)
 
                     # Action buttons
-                    b1, b2 = st.columns(2)
+                    b1, b2, b3 = st.columns(3)
                     with b1:
-                        with st.popover("✏️ Edit Card"):
+                        with st.popover("✏️ Edit"):
                             with st.form(f"edit_form_{row['id']}"):
                                 e_name = st.text_input("Card Name", value=row["card_name"])
                                 e_set = st.text_input("Set Name", value=row["set_name"])
@@ -301,6 +301,20 @@ with tab_portfolio:
                                 delete_card_from_collection(row["id"])
                                 st.success("Removed from Vault!")
                                 st.rerun()
+
+                    with b3:
+                        with st.popover("ℹ️ Info"):
+                            st.markdown(f"#### 🔍 {row['card_name']}")
+                            st.markdown(f"**Set:** {row['set_name']} • **Number:** `{card_num_str}`")
+                            st.markdown(f"**Edition:** {row['edition']} • **Language:** {row['language']}")
+                            if row["is_error"] == 1 and row.get("error_type"):
+                                st.error(f"**⚠️ Known Card Errors & Misprints:**\n\n{row['error_type']}")
+                            st.markdown(f"- **Purchase Price:** `${row['purchase_price']:,.2f}` on {row['purchase_date']}")
+                            st.markdown(f"- **Est. Market Value:** `${row['current_market_value']:,.2f}` ({gain_sign}${row['unrealized_gain']:,.2f})")
+                            if row.get("cert_number"):
+                                st.markdown(f"- **Cert #:** `{row['cert_number']}` ({row['grading_company']} {row['grade_label']})")
+                            if row.get("notes"):
+                                st.markdown(f"- **Notes:** {row['notes']}")
         else:
             st.dataframe(
                 df_col[[
@@ -421,8 +435,7 @@ with tab_master_set:
                     else '<span style="background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #f87171; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">❌ MISSING</span>'
                 )
                 ed_badge = get_edition_badge_html(row.get("edition", "Unlimited"))
-                err_desc = row.get("error_description") or "ERROR"
-                err_badge = f'<span class="badge-error" style="font-size: 0.68rem;" title="{err_desc}">⚠️ {err_desc[:18]}</span>' if row["is_error"] == 1 else ""
+                err_badge = '<span class="badge-error">⚠️ ERROR</span>' if row["is_error"] == 1 else ""
                 pop_badge = get_pop_badge_html(int(row.get("pop_grade10") or 0), int(row.get("pop_pristine10") or 0))
                 img_src = row["image_url"] if row["image_url"] else "https://images.pokemontcg.io/base1/68_hires.png"
 
@@ -487,9 +500,9 @@ with tab_master_set:
                 st.markdown(master_card_html, unsafe_allow_html=True)
 
                 # Quick Action Buttons
-                act1, act2 = st.columns(2)
+                act1, act2, act3 = st.columns(3)
                 with act1:
-                    with st.popover("📥 Add to Vault"):
+                    with st.popover("📥 Add"):
                         with st.form(f"quick_add_{row['id']}"):
                             st.markdown(f"**Add {row['card_name']} to Vault:**")
                             q_cond = st.radio("Condition", ["Raw Single", "Graded Slab"], horizontal=True)
@@ -521,7 +534,7 @@ with tab_master_set:
                                 st.rerun()
 
                 with act2:
-                    with st.popover("✏️ Edit Card"):
+                    with st.popover("✏️ Edit"):
                         with st.form(f"edit_m_{row['id']}"):
                             em_name = st.text_input("Card Name", value=row["card_name"])
                             em_set = st.text_input("Set Name", value=row["set_name"])
@@ -533,7 +546,7 @@ with tab_master_set:
                             em_pop = st.number_input("PSA/CGC Pop (Grade 10)", min_value=0, value=int(row.get("pop_grade10") or 0))
                             em_img = st.text_input("Image URL (Replace/Flag)", value=row["image_url"])
                             em_err = st.checkbox("Is Error Card?", value=bool(row["is_error"]))
-                            em_notes = st.text_area("Notes / Error Description", value=row["notes"] or "")
+                            em_notes = st.text_area("Notes / Error Description", value=row.get("error_description") or row.get("notes") or "")
                             if st.form_submit_button("Save Changes"):
                                 update_master_card(row["id"], {
                                     "card_name": em_name,
@@ -555,6 +568,25 @@ with tab_master_set:
                                 })
                                 st.success("Saved!")
                                 st.rerun()
+
+                with act3:
+                    with st.popover("ℹ️ Info"):
+                        st.markdown(f"#### 🔍 {row['card_name']}")
+                        st.markdown(f"**Set:** {row['set_name']} • **Number:** `{card_num_display}`")
+                        st.markdown(f"**Edition:** {row['edition']} • **Language:** {row['language']} • **Year:** {row['release_year']}")
+                        
+                        if row["is_error"] == 1:
+                            err_text = row.get("error_description") or row.get("notes") or "Error Card / Misprint"
+                            st.error(f"**⚠️ Known Card Errors & Misprints:**\n\n{err_text}")
+                        
+                        st.markdown(f"- **Est. Raw Value:** `${row['est_raw_price']:,.2f}`")
+                        st.markdown(f"- **Est. PSA 10 Value:** `${row['est_grade10_price']:,.2f}`")
+                        if row.get("pop_grade10"):
+                            st.markdown(f"- **PSA 10 Population:** `{row['pop_grade10']}`")
+                        if row.get("notes") and row.get("notes") != row.get("error_description"):
+                            st.markdown(f"- **Variant / Notes:** {row['notes']}")
+                        
+                        st.link_button("📊 PriceCharting History ↗", pc_url)
     else:
         disp_df = filtered_master[[
             "release_year", "card_name", "set_name", "card_number",
@@ -582,7 +614,7 @@ with tab_master_set:
 
     with st.expander("🔍 **Pre-Import Verification & Diagnostic Inspector** (Click to Preview Before Syncing)", expanded=True):
         st.markdown(
-            "This diagnostic inspector verifies all 268 cards from your spreadsheet, checks for 1st Edition stamps, separates error descriptions, and extracts verified card names before writing to the database."
+            "This diagnostic inspector verifies cards from your spreadsheet, checks for 1st Edition stamps, separates error descriptions, filters out duplicate 'Code:' entries, and extracts verified card names before writing to the database."
         )
 
         sheet_url_input = st.text_input(
@@ -590,11 +622,22 @@ with tab_master_set:
             value="https://docs.google.com/spreadsheets/d/12RkRdPNwbFly1SXmCS7DQkB5Q5zQZcPAnLX-P8M_vNA/edit?gid=0#gid=0",
         )
 
-        prev_col1, prev_col2 = st.columns([1, 2])
+        prev_col1, prev_col2, prev_col3 = st.columns([1, 1.5, 1.5])
         with prev_col1:
-            btn_preview = st.button("🔍 Run Diagnostic Verification Preview")
+            btn_preview = st.button("🔍 Run Verification Preview")
         with prev_col2:
-            btn_clean_sync = st.button("🚀 Clean & Re-Import All 268 Cards into Master Catalog", type="primary")
+            btn_clean_sync = st.button("🚀 Clean & Re-Import into Master Catalog", type="primary")
+        with prev_col3:
+            clean_csv_path = os.path.join(os.path.dirname(__file__), "..", "data", "vulpix_master_set_cleaned.csv")
+            if os.path.exists(clean_csv_path):
+                with open(clean_csv_path, "rb") as f:
+                    st.download_button(
+                        "📥 Download Clean 7-Col CSV",
+                        data=f.read(),
+                        file_name="vulpix_master_set_cleaned.csv",
+                        mime="text/csv",
+                        help="Filtered out 'Code:' entries and trimmed columns after Error/Notes.",
+                    )
 
         if btn_preview or "preview_cache_df" in st.session_state:
             if btn_preview:
@@ -621,7 +664,7 @@ with tab_master_set:
                 stats = st.session_state["preview_cache_stats"]
 
                 st.markdown(
-                    f"**✨ Verification Result:** `{stats['total']} Cards Verified` • `🥇 {stats['first_ed']} 1st Edition` • `⚠️ {stats['errors']} Errors` • `🌐 {stats['languages']} Languages` • `📦 {stats['sets']} Sets`"
+                    f"**✨ Verification Result:** `{stats['total']} Cards Verified` • `🥇 {stats['first_ed']} 1st Edition` • `⚠️ {stats['errors']} Errors` • `🌐 {stats['languages']} Languages` • `📦 {stats['sets']} Sets` *(Filtered out e-Reader 'Code:' duplicates)*"
                 )
 
                 tab_p1, tab_p2, tab_p3 = st.tabs(["All Verified Cards", "🥇 1st Edition Cards", "⚠️ Error Cards"])
@@ -633,7 +676,7 @@ with tab_master_set:
                     st.dataframe(df_prev[df_prev["is_error"] == 1][["release_year", "card_name", "set_name", "card_number", "edition", "error_description", "language"]], use_container_width=True, hide_index=True)
 
         if btn_clean_sync:
-            with st.spinner("Purging old malformed records and cleanly populating 268 verified cards..."):
+            with st.spinner("Purging old malformed records and cleanly populating verified cards..."):
                 count, msg, _ = sync_from_google_sheets_url(sheet_url_input)
                 if count > 0:
                     st.success(f"✅ {msg}")

@@ -468,6 +468,10 @@ def parse_card_row_from_sheet(row: Any) -> Dict[str, Any]:
     if variant.lower() in ["nan", "none"]:
         variant = ""
 
+    # Filter out e-Reader dot code duplicates ("Code: ...")
+    if "code:" in variant.lower():
+        return None
+
     error_notes = str(row.get("Error / Notes") or row.get("error_description") or row.get("Error") or "").strip()
     if error_notes.lower() in ["nan", "none"]:
         error_notes = ""
@@ -589,15 +593,16 @@ def parse_and_preview_catalog(df_input: pd.DataFrame) -> Tuple[pd.DataFrame, Dic
     if df_input.empty:
         return pd.DataFrame(), {"total": 0, "first_ed": 0, "errors": 0}
 
-    parsed_rows = [parse_card_row_from_sheet(r) for _, r in df_input.iterrows()]
+    raw_parsed = [parse_card_row_from_sheet(r) for _, r in df_input.iterrows()]
+    parsed_rows = [p for p in raw_parsed if p is not None]
     df_preview = pd.DataFrame(parsed_rows)
 
     stats = {
         "total": len(df_preview),
-        "first_ed": int(df_preview["is_1st_edition"].sum()),
-        "errors": int(df_preview["is_error"].sum()),
-        "languages": df_preview["language"].nunique(),
-        "sets": df_preview["set_name"].nunique(),
+        "first_ed": int(df_preview["is_1st_edition"].sum()) if not df_preview.empty else 0,
+        "errors": int(df_preview["is_error"].sum()) if not df_preview.empty else 0,
+        "languages": df_preview["language"].nunique() if not df_preview.empty else 0,
+        "sets": df_preview["set_name"].nunique() if not df_preview.empty else 0,
     }
     return df_preview, stats
 
@@ -608,7 +613,8 @@ def reset_and_clean_sync_master_catalog(df_input: pd.DataFrame) -> Tuple[int, st
     if df_input.empty:
         return 0, "Input spreadsheet is empty."
 
-    parsed_rows = [parse_card_row_from_sheet(r) for _, r in df_input.iterrows()]
+    raw_parsed = [parse_card_row_from_sheet(r) for _, r in df_input.iterrows()]
+    parsed_rows = [p for p in raw_parsed if p is not None]
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
