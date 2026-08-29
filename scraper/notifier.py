@@ -20,8 +20,7 @@ def send_gotify_alert(
     """
     base_url = (gotify_url or os.getenv("GOTIFY_URL", "http://10.0.0.48")).rstrip("/")
     token = gotify_token or os.getenv("GOTIFY_APP_TOKEN", "")
-
-    if not token or token == "your_gotify_app_token_here":
+    if not token or not token.strip():
         print("[Notifier] Info: GOTIFY_APP_TOKEN not configured. Skipping push notification.")
         return False
 
@@ -97,8 +96,7 @@ def send_sniper_urgent_alert(
     """
     base_url = (gotify_url or os.getenv("GOTIFY_URL", "http://10.0.0.48")).rstrip("/")
     token = gotify_token or os.getenv("GOTIFY_APP_TOKEN", "")
-
-    if not token or token == "your_gotify_app_token_here":
+    if not token or not token.strip():
         return False
 
     title = f"🚨 SNIPER ALERT: {sniper_item.get('card_name', 'Vulpix')} Closes in ~{minutes_left}m!"

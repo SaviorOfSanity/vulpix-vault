@@ -1,17 +1,18 @@
 # 🦊 The Vulpix Vault
 
 > **Self-hosted Pokémon card market tracking application containerized with Docker Compose for Proxmox and Linux servers.**
-> Tracks your personal graded Vulpix slab collection, scrapes eBay for new listings, appraises deals with Google Gemini AI, and sends push notifications to your devices via Gotify.
+> Tracks your personal Vulpix collection, monitors Master Set completion, analyzes market sales trends, and sends real-time deal alerts via Gotify.
 
 ---
 
 ## 🌟 Key Features
 
-* **🏆 Graded Slabs Collection Tracker:** Manage your personal slab vault (PSA, CGC, BGS, ARS, ACE). Tracks cost basis, acquisition dates, cert numbers, and computes real-time unrealized gains and ROI %.
-* **🤖 AI Market Appraisal (Google Gemini):** Automatically analyzes newly scraped eBay listings against recent comparable sales using `gemini-2.5-flash` to identify true market deals (`amazing_deal`, `good_deal`, `avoid_price`).
-* **🔔 Gotify Push Notifications:** Instant Priority 8 alerts pushed to your phone or desktop with direct eBay listing links whenever an amazing deal is discovered.
-* **📈 Interactive Market Analytics:** Multi-series Plotly price trend charts filtering historical sales by variant, grading company, and grade.
-* **🐳 Docker Compose Architecture:** Multi-container setup with independent Streamlit UI, background Python APScheduler daemon, and local Gotify server with persistent SQLite storage in WAL mode.
+* **🏆 Personal Vault Tracker:** Manage your personal slab and raw collection (PSA, CGC, BGS, ARS, ACE, Raw singles). Tracks acquisition dates, cert numbers, and computes real-time unrealized gains and ROI %.
+* **📜 Master Set Completion Catalog:** Complete checklist for 240+ Vulpix cards with official card artwork scans, 1st Edition badges, variant indicators, and error tracking.
+* **🤖 Market Deal Radar:** Evaluates live eBay listings against comparable sales to identify high-conviction deals.
+* **🔔 Push Notifications:** Push alerts delivered directly to your phone or desktop with direct eBay links when deals are discovered.
+* **📈 Market Sales Explorer:** Interactive price history charts filtering historical sales by variant, grading company, and grade.
+* **🐳 Docker Compose Architecture:** Multi-container setup with independent Streamlit UI, background automated daemon, and persistent SQLite storage in WAL mode.
 
 ---
 
@@ -23,14 +24,14 @@
 │                                                             │
 │  ┌──────────────────────┐        ┌───────────────────────┐  │
 │  │   vulpix-dashboard   │        │     vulpix-scraper    │  │
-│  │  (Streamlit UI :8501)│        │ (APScheduler + Gemini)│  │
+│  │  (Streamlit UI :8501)│        │   (Automation Daemon) │  │
 │  └──────────┬───────────┘        └───────────┬───────────┘  │
 │             │                                │              │
 │             │    ┌──────────────────────┐    │              │
 │             └───►│   SQLite WAL Mode    │◄───┘              │
 │                  │ (/data/vulpix_vault) │                   │
 │                  └──────────────────────┘                   │
-│                                      │ (Alerts on Deals)    │
+│                                      │                      │
 │                                      ▼                      │
 │                          ┌───────────────────────┐          │
 │                          │     gotify/server     │          │
@@ -43,10 +44,10 @@
 
 ## 🚀 Quick Start & Deployment
 
-### 1. Clone or Copy the Repository
+### 1. Clone the Repository
 ```bash
-git clone <your-repo-url> "Vulpix Card Value"
-cd "Vulpix Card Value"
+git clone https://github.com/SaviorOfSanity/vulpix-vault.git
+cd vulpix-vault
 ```
 
 ### 2. Configure Environment Variables
@@ -54,15 +55,10 @@ Copy `.env.example` to `.env`:
 ```bash
 cp .env.example .env
 ```
-Edit `.env` with your API keys:
+
+Review `.env` to configure your environment settings:
 ```env
-# Google Gemini API key
-GEMINI_API_KEY=
-
-# Gotify Application Token (generated in Gotify UI)
-GOTIFY_APP_TOKEN=your_gotify_token_here
-
-# Gotify URL inside Docker network
+# Gotify Server URL (Inside Docker: http://gotify:80 | Host: http://10.0.0.48:8070)
 GOTIFY_URL=http://gotify:80
 
 # SQLite Database Location
@@ -79,17 +75,14 @@ docker compose up -d --build
 
 ---
 
-## 📱 Setting Up Push Notifications (Gotify)
+## 📱 Push Notifications Setup (Gotify)
 
-1. Open Gotify in your browser: `http://<your-proxmox-or-server-ip>:8070`
-2. Log in with the default credentials:
-   - **Username:** `admin`
-   - **Password:** `admin` *(change this under User settings immediately)*
-3. Click on **Apps** in the top navigation $\rightarrow$ Click **Create Application**.
-4. Name it `Vulpix Vault Radar` and click **Create**.
-5. Copy the generated **Token** and paste it into your `.env` file as `GOTIFY_APP_TOKEN`.
-6. Restart the scraper: `docker compose restart vulpix-scraper`.
-7. Install the Gotify app on your Android/iOS phone or desktop to receive push alerts with click-through links!
+1. Open Gotify in your browser: `http://<your-server-ip>:8070`
+2. Log in with your admin credentials.
+3. Navigate to **Apps** $\rightarrow$ Click **Create Application**.
+4. Name your application (e.g. `Vulpix Vault Radar`) and click **Create**.
+5. Copy the generated application token and save it directly in the dashboard under **Tab 6 (System Controls & Gotify Sync)** or in your `.env` file.
+6. Click **Save & Test Connection** in Tab 6 to verify live push delivery.
 
 ---
 
@@ -97,46 +90,18 @@ docker compose up -d --build
 
 Open your web browser and navigate to:
 ```
-http://<your-proxmox-or-server-ip>:8501
+http://<your-server-ip>:8501
 ```
 
-* **🦊 My Graded Vault:** View your slab collection, monitor portfolio gains, and add new slabs.
-* **📈 Market Price Trends:** Explore historical sales charts and filter by card variant and grade.
-* **🎯 AI Deal Radar:** See live undervalued listings flagged by Google Gemini.
-* **⚙️ System & Controls:** Trigger immediate on-demand scrapes and test Gotify push notifications.
+* **💼 My Vault & Portfolio:** View your owned cards, track portfolio ROI, and manage your slabs.
+* **📜 Master Set Checklist:** Browse the 240+ card catalog with high-res scans, 1st Edition badges, and price benchmarks.
+* **🎯 eBay Sniper Watchlist:** Monitor active auctions and set target auto-bid caps.
+* **🔥 AI Deal Radar:** Discover live discounted listings.
+* **⚙️ System Controls & Gotify Sync:** Manage database records, test push notifications, and configure settings.
 
 ---
 
-## 📁 Project Structure
-
-```
-├── docker-compose.yml       # Orchestrates Streamlit, Scraper, and Gotify
-├── .env.example             # Environment variables template
-├── .env                     # Local environment configuration
-├── .gitignore               # Excludes secrets, databases, and caches
-├── README.md                # Documentation & deployment guide
-├── data/                    # Persistent storage volume for SQLite DB
-│   └── .gitkeep
-├── dashboard/               # Streamlit Frontend Service
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── app.py               # 4-tab responsive web interface
-│   ├── db_utils.py          # Cached data access & portfolio analytics
-│   └── styles.py            # Dark theme CSS & grading badge styling
-└── scraper/                 # Background Automation Service
-    ├── Dockerfile
-    ├── requirements.txt
-    ├── cron_scraper.py      # APScheduler entrypoint & workflow coordinator
-    ├── db.py                # SQLite WAL schema & query utilities
-    ├── ebay.py              # eBay listing parser & regex slab extractor
-    ├── appraiser.py         # Google Gemini AI pricing appraisal
-    ├── notifier.py          # Gotify push alert dispatcher
-    └── seed_data.py         # Starter collection & market sales generator
-```
-
----
-
-## 🛠️ Management & Useful Commands
+## 🛠️ Management Commands
 
 * **View live scraper logs:**
   ```bash

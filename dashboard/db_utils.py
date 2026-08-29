@@ -306,7 +306,7 @@ def send_gotify_alert(
     """Dispatches a push notification directly to Gotify server with automatic fallback URLs."""
     token = gotify_token or get_system_setting("GOTIFY_APP_TOKEN") or os.getenv("GOTIFY_APP_TOKEN", "")
 
-    if not token or token == "your_gotify_app_token_here":
+    if not token or not token.strip():
         print("[Dashboard Gotify] Warning: GOTIFY_APP_TOKEN not configured.")
         return False
 
@@ -607,7 +607,7 @@ def parse_and_preview_catalog(df_input: pd.DataFrame) -> Tuple[pd.DataFrame, Dic
     return df_preview, stats
 
 
-def reset_and_clean_sync_master_catalog(df_input: pd.DataFrame) -> Tuple[int, str]:
+def reset_and_clean_sync_master_catalog(df_input: pd.DataFrame, auto_import_owned: bool = False) -> Tuple[int, str]:
     """Wipes old malformed master catalog entries and cleanly populates all cards from DataFrame."""
     ensure_tables_exist()
     if df_input.empty:
@@ -622,60 +622,61 @@ def reset_and_clean_sync_master_catalog(df_input: pd.DataFrame) -> Tuple[int, st
 
     count = bulk_upsert_master_catalog(parsed_rows)
 
-    # Sync owned cards into collection
+    # Sync owned cards into collection only if explicitly requested
     owned_added = 0
-    for p in parsed_rows:
-        if p.get("owned_raw"):
-            add_card_to_collection({
-                "card_name": p["card_name"],
-                "set_name": p["set_name"],
-                "card_number": p["card_number"],
-                "grading_company": "RAW",
-                "grade": 0.0,
-                "grade_label": "Raw Single",
-                "purchase_price": p["est_raw_price"],
-                "edition": p["edition"],
-                "language": p["language"],
-                "is_error": p["is_error"],
-                "error_type": p["error_description"],
-                "is_raw": 1,
-                "image_url": p["image_url"],
-            })
-            owned_added += 1
-        if p.get("owned_psa10"):
-            add_card_to_collection({
-                "card_name": p["card_name"],
-                "set_name": p["set_name"],
-                "card_number": p["card_number"],
-                "grading_company": "PSA",
-                "grade": 10.0,
-                "grade_label": "Gem Mint 10",
-                "purchase_price": p["est_grade10_price"],
-                "edition": p["edition"],
-                "language": p["language"],
-                "is_error": p["is_error"],
-                "error_type": p["error_description"],
-                "is_raw": 0,
-                "image_url": p["image_url"],
-            })
-            owned_added += 1
-        if p.get("owned_pristine10"):
-            add_card_to_collection({
-                "card_name": p["card_name"],
-                "set_name": p["set_name"],
-                "card_number": p["card_number"],
-                "grading_company": "CGC",
-                "grade": 10.0,
-                "grade_label": "Pristine 10",
-                "purchase_price": p["est_grade10_price"] * 1.3,
-                "edition": p["edition"],
-                "language": p["language"],
-                "is_error": p["is_error"],
-                "error_type": p["error_description"],
-                "is_raw": 0,
-                "image_url": p["image_url"],
-            })
-            owned_added += 1
+    if auto_import_owned:
+        for p in parsed_rows:
+            if p.get("owned_raw"):
+                add_card_to_collection({
+                    "card_name": p["card_name"],
+                    "set_name": p["set_name"],
+                    "card_number": p["card_number"],
+                    "grading_company": "RAW",
+                    "grade": 0.0,
+                    "grade_label": "Raw Single",
+                    "purchase_price": p["est_raw_price"],
+                    "edition": p["edition"],
+                    "language": p["language"],
+                    "is_error": p["is_error"],
+                    "error_type": p["error_description"],
+                    "is_raw": 1,
+                    "image_url": p["image_url"],
+                })
+                owned_added += 1
+            if p.get("owned_psa10"):
+                add_card_to_collection({
+                    "card_name": p["card_name"],
+                    "set_name": p["set_name"],
+                    "card_number": p["card_number"],
+                    "grading_company": "PSA",
+                    "grade": 10.0,
+                    "grade_label": "Gem Mint 10",
+                    "purchase_price": p["est_grade10_price"],
+                    "edition": p["edition"],
+                    "language": p["language"],
+                    "is_error": p["is_error"],
+                    "error_type": p["error_description"],
+                    "is_raw": 0,
+                    "image_url": p["image_url"],
+                })
+                owned_added += 1
+            if p.get("owned_pristine10"):
+                add_card_to_collection({
+                    "card_name": p["card_name"],
+                    "set_name": p["set_name"],
+                    "card_number": p["card_number"],
+                    "grading_company": "CGC",
+                    "grade": 10.0,
+                    "grade_label": "Pristine 10",
+                    "purchase_price": p["est_grade10_price"] * 1.3,
+                    "edition": p["edition"],
+                    "language": p["language"],
+                    "is_error": p["is_error"],
+                    "error_type": p["error_description"],
+                    "is_raw": 0,
+                    "image_url": p["image_url"],
+                })
+                owned_added += 1
 
     msg = f"Cleaned & Synced {count} cards into Master Set Catalog! ({stats_summary(parsed_rows)})"
     if owned_added > 0:
@@ -691,14 +692,14 @@ def stats_summary(parsed_rows: List[Dict[str, Any]]) -> str:
 
 
 def sync_master_catalog_from_df(
-    df_input: pd.DataFrame, custom_col_map: Optional[Dict[str, str]] = None
+    df_input: pd.DataFrame, custom_col_map: Optional[Dict[str, str]] = None, auto_import_owned: bool = False
 ) -> Tuple[int, str, List[str]]:
     """Syncs dataframe cards into database with intelligent variant & error resolution."""
-    count, msg = reset_and_clean_sync_master_catalog(df_input)
+    count, msg = reset_and_clean_sync_master_catalog(df_input, auto_import_owned=auto_import_owned)
     return count, msg, []
 
 
-def sync_from_google_sheets_url(sheet_url: str) -> Tuple[int, str, List[str]]:
+def sync_from_google_sheets_url(sheet_url: str, auto_import_owned: bool = False) -> Tuple[int, str, List[str]]:
     """Downloads public Google Sheets CSV export and cleanly syncs into database."""
     match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", sheet_url)
     if not match:
@@ -715,7 +716,7 @@ def sync_from_google_sheets_url(sheet_url: str) -> Tuple[int, str, List[str]]:
         with urllib.request.urlopen(req, timeout=15) as response:
             csv_content = response.read().decode("utf-8")
         df = pd.read_csv(io.StringIO(csv_content))
-        return sync_master_catalog_from_df(df)
+        return sync_master_catalog_from_df(df, auto_import_owned=auto_import_owned)
     except urllib.error.HTTPError as e:
         if e.code in [401, 403]:
             return 0, "Google Sheets Permission Error (401/403): Sheet is Restricted. Please click 'Share' in Google Sheets and select 'Anyone with the link can view'.", []
@@ -1268,10 +1269,38 @@ def update_collection_card(card_id: int, updates: Dict[str, Any]) -> None:
 
 
 def delete_card_from_collection(card_id: int) -> None:
-    """Remove a card from personal collection."""
+    """Remove a single card from personal collection."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM my_collection WHERE id = ?", (card_id,))
+
+
+def clear_entire_collection() -> int:
+    """Wipes all records from my_collection."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as cnt FROM my_collection;")
+        cnt = cursor.fetchone()["cnt"]
+        cursor.execute("DELETE FROM my_collection;")
+        return cnt
+
+
+def unmark_card_as_owned(master_card_id: int, card_name: str = "", set_name: str = "") -> int:
+    """Removes all collection records matching a master set card."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM my_collection WHERE master_card_id = ?;", (master_card_id,))
+        count = cursor.rowcount or 0
+
+        if card_name and set_name:
+            cursor.execute("""
+                DELETE FROM my_collection
+                WHERE LOWER(TRIM(card_name)) = LOWER(TRIM(:c_name))
+                  AND LOWER(TRIM(set_name)) = LOWER(TRIM(:s_name));
+            """, {"c_name": card_name, "s_name": set_name})
+            count += cursor.rowcount or 0
+
+        return count
 
 
 def update_card_image_override(table_name: str, record_id: int, new_image_url: str) -> None:

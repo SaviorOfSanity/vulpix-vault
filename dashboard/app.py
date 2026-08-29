@@ -339,6 +339,15 @@ with tab_portfolio:
                 hide_index=True,
             )
 
+        st.markdown("---")
+        with st.expander("🗑️ Vault Collection Management & Reset (Danger Zone)", expanded=False):
+            st.warning("Need to clear out test cards or cards imported from your spreadsheet that you don't actually own?")
+            st.write("Clicking below will clear all personal cards currently stored in your Vault collection so you can start completely fresh or add cards individually.")
+            if st.button("🚨 Wipe All Owned Cards from Vault", type="primary", key="wipe_vault_btn"):
+                cnt = clear_entire_collection()
+                st.success(f"Successfully cleared {cnt} cards from your Vault!")
+                st.rerun()
+
 
 # -------------------------------------------------------------
 # TAB 2: Master Set Checklist & Pre-Import Verification
@@ -502,12 +511,24 @@ with tab_master_set:
                 # Quick Action Buttons
                 act1, act2, act3 = st.columns(3)
                 with act1:
-                    with st.popover("📥 Add"):
-                        with st.form(f"quick_add_{row['id']}"):
+                    pop_label = "✅ Owned" if row["is_owned"] else "📥 Add"
+                    with st.popover(pop_label):
+                        if row["is_owned"]:
+                            st.markdown(f"**Status:** Marked as Owned in Vault (`{row['owned_copies']} copy`).")
+                            st.caption(f"Details: {row['owned_details']}")
+                            if st.button("❌ Remove / Unmark as Owned", key=f"unmark_{row['id']}", type="primary"):
+                                unmark_card_as_owned(row["id"], row["card_name"], row["set_name"])
+                                st.success("Unmarked card from Vault!")
+                                st.rerun()
+                            st.markdown("---")
+                            st.markdown("**Add another copy to Vault:**")
+                        else:
                             st.markdown(f"**Add {row['card_name']} to Vault:**")
+
+                        with st.form(f"quick_add_{row['id']}"):
                             q_cond = st.radio("Condition", ["Raw Single", "Graded Slab"], horizontal=True)
                             q_co = st.selectbox("Grader", ["RAW", "PSA", "CGC", "BGS", "ARS", "ACE"]) if q_cond == "Graded Slab" else "RAW"
-                            q_tier = st.selectbox("Grade Label", ["Raw Single", "Gem Mint", "Pristine 10", "Black Label 10", "Mint"])
+                            q_tier = st.selectbox("Grade Label", ["Raw Single", "Gem Mint", "Pristine 10", "Black Label 10", "Mint 9", "Near Mint 8"])
                             q_price = st.number_input("Purchase Price ($)", min_value=0.0, value=float(row["est_raw_price"] or 10.0))
                             if st.form_submit_button("Confirm Add"):
                                 add_card_to_collection({
@@ -575,6 +596,13 @@ with tab_master_set:
                         st.markdown(f"**Set:** {row['set_name']} • **Number:** `{card_num_display}`")
                         st.markdown(f"**Edition:** {row['edition']} • **Language:** {row['language']} • **Year:** {row['release_year']}")
                         
+                        if row["is_owned"]:
+                            st.success(f"**Ownership:** ✅ Owned in Vault ({row['owned_details']})")
+                            if st.button("❌ Remove from Vault", key=f"info_unmark_{row['id']}"):
+                                unmark_card_as_owned(row["id"], row["card_name"], row["set_name"])
+                                st.success("Removed from Vault!")
+                                st.rerun()
+
                         if row["is_error"] == 1:
                             err_text = row.get("error_description") or row.get("notes") or "Error Card / Misprint"
                             st.error(f"**⚠️ Known Card Errors & Misprints:**\n\n{err_text}")
@@ -670,12 +698,11 @@ with tab_master_set:
                     st.dataframe(df_prev[["release_year", "card_name", "set_name", "card_number", "edition", "language", "error_description", "est_raw_price", "est_grade10_price"]], use_container_width=True, hide_index=True)
                 with tab_p2:
                     st.dataframe(df_prev[df_prev["is_1st_edition"] == 1][["release_year", "card_name", "set_name", "card_number", "edition", "language", "est_raw_price", "est_grade10_price"]], use_container_width=True, hide_index=True)
-                with tab_p3:
-                    st.dataframe(df_prev[df_prev["is_error"] == 1][["release_year", "card_name", "set_name", "card_number", "edition", "error_description", "language"]], use_container_width=True, hide_index=True)
+        auto_import_col = st.checkbox("Also automatically import cards flagged as owned in sheet into Vault", value=False)
 
         if btn_clean_sync:
             with st.spinner("Purging old malformed records and cleanly populating verified cards..."):
-                count, msg, _ = sync_from_google_sheets_url(sheet_url_input)
+                count, msg, _ = sync_from_google_sheets_url(sheet_url_input, auto_import_owned=auto_import_col)
                 if count > 0:
                     st.success(f"✅ {msg}")
                     st.rerun()
@@ -883,7 +910,7 @@ with tab_settings:
             in_token = st.text_input(
                 "Gotify Application Token (App Key)",
                 value=saved_token,
-                placeholder="e.g. AkxDddkn03D.Zcx",
+                placeholder="e.g. Axxxxxxxxxxxxxx",
                 type="password",
                 help="Created in Gotify Web UI -> Apps -> Create App",
             )
@@ -898,9 +925,9 @@ with tab_settings:
             save_gotify = st.form_submit_button("💾 Save Credentials & Send Test Alert")
 
             if save_gotify:
-                if in_token and in_token != "your_gotify_app_token_here":
-                    set_system_setting("GOTIFY_APP_TOKEN", in_token)
-                    set_system_setting("GOTIFY_URL", in_url)
+                if in_token.strip():
+                    set_system_setting("GOTIFY_APP_TOKEN", in_token.strip())
+                    set_system_setting("GOTIFY_URL", in_url.strip())
                     test_listing = {
                         "listing_id": "test_alert_005",
                         "title": "Vulpix 1st Edition Base Set PSA 10 (TEST GOTIFY ALERT)",
