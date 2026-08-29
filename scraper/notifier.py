@@ -1,6 +1,6 @@
 """
 Push notification client for Gotify server.
-Sends high-priority alerts when an 'amazing_deal' is discovered.
+Sends high-priority alerts when an 'amazing_deal' or 'great_deal' is discovered.
 """
 
 import os
@@ -13,10 +13,9 @@ def send_gotify_alert(
     appraisal: Dict[str, Any],
     gotify_url: Optional[str] = None,
     gotify_token: Optional[str] = None,
-    priority: int = 8,
 ) -> bool:
     """
-    Sends a push notification to Gotify with card details, fair value estimate, and click action.
+    Sends a push notification to Gotify with card details, condition/grade, fair value estimate, and click action.
     """
     base_url = (gotify_url or os.getenv("GOTIFY_URL", "http://gotify:80")).rstrip("/")
     token = gotify_token or os.getenv("GOTIFY_APP_TOKEN", "")
@@ -25,18 +24,31 @@ def send_gotify_alert(
         print("[Notifier] Info: GOTIFY_APP_TOKEN not configured. Skipping push notification.")
         return False
 
-    title = f"🔥 Amazing Vulpix Deal: {listing.get('card_name', 'Vulpix')} {listing.get('grading_company', '')} {listing.get('grade', '')}"
+    rating = appraisal.get("deal_rating", "good_deal")
+    priority = 8 if rating == "amazing_deal" else 6
+
+    condition_info = (
+        f"{listing.get('grading_company', '')} {listing.get('grade_label', '')}"
+        if listing.get("condition_type") == "Graded"
+        else "Raw Single"
+    )
+
+    emoji = "🔥" if rating == "amazing_deal" else "⭐"
+    title = f"{emoji} {rating.replace('_', ' ').title()}: {listing.get('card_name', 'Vulpix')} ({condition_info})"
     
     total_price = listing.get("total_price", listing.get("price", 0.0))
     fair_value = appraisal.get("fair_value_estimate", 0.0)
     discount = appraisal.get("discount_percentage", 0.0)
     rationale = appraisal.get("rationale") or appraisal.get("ai_rationale", "")
     listing_url = listing.get("listing_url", "")
+    edition = listing.get("edition", "Unlimited")
+    language = listing.get("language", "English")
 
     message_body = (
         f"**Card:** {listing.get('title')}\n"
+        f"**Condition:** {condition_info} • {edition} ({language})\n"
         f"**Listed Price:** ${total_price:.2f}\n"
-        f"**Estimated Fair Value:** ${fair_value:.2f} ({discount:.1f}% OFF)\n\n"
+        f"**Est. Fair Value:** ${fair_value:.2f} ({discount:+.1f}% OFF)\n\n"
         f"**AI Appraisal:** {rationale}\n\n"
         f"[View eBay Listing]({listing_url})"
     )

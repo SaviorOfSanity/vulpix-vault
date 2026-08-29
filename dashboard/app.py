@@ -1,7 +1,7 @@
 """
 The Vulpix Vault - Streamlit Web Dashboard
-Self-hosted Pokémon card market tracking application with real-time portfolio valuation,
-interactive market analytics, and AI deal radar.
+Master Set Completion Tracker, Special Grades (Pristine 10, Black Label 10),
+Google Sheets Catalog Sync, and Multi-Tier AI Deal Radar.
 """
 
 import os
@@ -15,14 +15,18 @@ from db_utils import (
     add_card_to_collection,
     delete_card_from_collection,
     get_db_path,
+    get_master_set_metrics,
     get_portfolio_metrics,
     load_collection_df,
     load_deals_df,
     load_market_sales_df,
+    load_master_catalog_df,
+    sync_from_google_sheets_url,
+    sync_master_catalog_from_df,
 )
 from styles import apply_custom_styles, get_grading_badge_html, render_header
 
-# Set Streamlit Page Configuration
+# Set Page Config
 st.set_page_config(
     page_title="The Vulpix Vault",
     page_icon="🦊",
@@ -30,224 +34,384 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Apply CSS Styling
 apply_custom_styles()
 render_header()
 
-# Load Data
-metrics = get_portfolio_metrics()
+# Load Core Analytics
+port_metrics = get_portfolio_metrics()
+master_metrics = get_master_set_metrics()
 df_col = load_collection_df()
+df_master = load_master_catalog_df()
 df_market = load_market_sales_df()
 
 # -------------------------------------------------------------
-# Top Portfolio KPI Metrics
+# Top KPI Header Metrics
 # -------------------------------------------------------------
-col1, col2, col3, col4, col5 = st.columns(5)
+kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
 
-with col1:
+with kpi1:
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+            <div class="kpi-label">Master Set Progress</div>
+            <div class="kpi-value" style="color: #10b981;">{master_metrics['completion_pct']}%</div>
+            <div style="color: #94a3b8; font-size: 0.82rem;">{master_metrics['owned_cards']} / {master_metrics['total_cards']} Unique Cards</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with kpi2:
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+            <div class="kpi-label">Cost to Finish Master Set</div>
+            <div class="kpi-value" style="font-size: 1.35rem; color: #ffd591;">${master_metrics['cost_to_complete_raw']:,.2f} <span style="font-size: 0.8rem; color: #94a3b8;">(Raw)</span></div>
+            <div style="color: #f59e0b; font-size: 0.8rem; font-weight: 600;">${master_metrics['cost_to_complete_grade10']:,.2f} in Grade 10</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with kpi3:
     st.markdown(
         f"""
         <div class="kpi-card">
             <div class="kpi-label">Vault Portfolio Value</div>
-            <div class="kpi-value">${metrics['total_value']:,.2f}</div>
-            <div class="kpi-delta-pos">Est. Market Value</div>
+            <div class="kpi-value">${port_metrics['total_value']:,.2f}</div>
+            <div style="color: #8c8d9a; font-size: 0.82rem;">Cost Basis: ${port_metrics['total_cost']:,.2f}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-with col2:
+with kpi4:
+    gain_class = "kpi-delta-pos" if port_metrics["net_gain"] >= 0 else "kpi-delta-neg"
+    sign = "+" if port_metrics["net_gain"] >= 0 else ""
     st.markdown(
         f"""
         <div class="kpi-card">
-            <div class="kpi-label">Total Cost Basis</div>
-            <div class="kpi-value">${metrics['total_cost']:,.2f}</div>
-            <div style="color: #8c8d9a; font-size: 0.85rem;">Acquisition Cost</div>
+            <div class="kpi-label">Net Gain / ROI</div>
+            <div class="kpi-value">{sign}${port_metrics['net_gain']:,.2f}</div>
+            <div class="{gain_class}">{sign}{port_metrics['roi_percent']:.1f}% Total ROI</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-with col3:
-    gain_class = "kpi-delta-pos" if metrics["net_gain"] >= 0 else "kpi-delta-neg"
-    sign = "+" if metrics["net_gain"] >= 0 else ""
-    st.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Net Unrealized Gain</div>
-            <div class="kpi-value">{sign}${metrics['net_gain']:,.2f}</div>
-            <div class="{gain_class}">{sign}{metrics['roi_percent']:.1f}% ROI</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with col4:
-    st.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Graded Slabs</div>
-            <div class="kpi-value">{metrics['total_slabs']}</div>
-            <div style="color: #8c8d9a; font-size: 0.85rem;">In Personal Vault</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with col5:
+with kpi5:
     st.markdown(
         f"""
         <div class="kpi-card">
             <div class="kpi-label">AI Deal Radar</div>
-            <div class="kpi-value" style="color: #ff7a45;">{metrics['amazing_deals_count']}</div>
-            <div style="color: #ff7a45; font-size: 0.85rem; font-weight: 600;">🔥 Amazing Deals Found</div>
+            <div class="kpi-value" style="color: #ff7a45;">{port_metrics['amazing_deals_count'] + port_metrics['great_deals_count']}</div>
+            <div style="color: #ff7a45; font-size: 0.82rem; font-weight: 600;">🔥 {port_metrics['amazing_deals_count']} Amazing • ⭐ {port_metrics['great_deals_count']} Great</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
+st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
 # -------------------------------------------------------------
 # Main Navigation Tabs
 # -------------------------------------------------------------
-tab_vault, tab_trends, tab_deals, tab_settings = st.tabs([
-    "🦊 My Graded Vault",
+tab_vault, tab_master, tab_trends, tab_deals, tab_settings = st.tabs([
+    "🦊 My Graded & Raw Vault",
+    "📜 Master Set Checklist",
     "📈 Market Price Trends",
     "🎯 AI Deal Radar",
-    "⚙️ System & Controls",
+    "⚙️ System Controls & Sync",
 ])
 
 # -------------------------------------------------------------
-# TAB 1: My Graded Vault
+# TAB 1: My Graded & Raw Vault
 # -------------------------------------------------------------
 with tab_vault:
-    st.markdown("### 🏆 Graded Slabs Collection")
+    st.markdown("### 🏆 Personal Vulpix Collection")
 
-    # Add Slab Expander Form
-    with st.expander("➕ Add New Graded Slab to Vault", expanded=False):
-        with st.form("add_slab_form", clear_on_submit=True):
-            f_col1, f_col2, f_col3 = st.columns(3)
-            with f_col1:
-                card_name = st.text_input("Card Name", placeholder="e.g. Base Set 1st Edition Vulpix #68")
-                set_name = st.text_input("Set Name", placeholder="e.g. Base Set (1999)")
-                card_number = st.text_input("Card Number", placeholder="e.g. 68/102")
-            with f_col2:
-                grading_company = st.selectbox("Grading Company", ["PSA", "CGC", "BGS", "ARS", "ACE", "SGC"])
-                grade = st.number_input("Grade", min_value=1.0, max_value=10.0, value=10.0, step=0.5)
-                cert_number = st.text_input("Certification Number", placeholder="e.g. 48291039")
-            with f_col3:
-                purchase_price = st.number_input("Purchase Price ($)", min_value=0.0, value=50.0, step=5.0)
-                purchase_date = st.date_input("Purchase Date", value=datetime.today())
-                image_url = st.text_input("Card Image URL (optional)", placeholder="https://...")
-            notes = st.text_area("Collector Notes (optional)", placeholder="Subgrades, provenance, or condition notes...")
+    # Add Slab / Raw Card Form
+    with st.expander("➕ Add New Card or Slab to Vault", expanded=False):
+        with st.form("add_card_vault_form", clear_on_submit=True):
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                f_card_name = st.text_input("Card Name", placeholder="e.g. Vulpix or Erika's Vulpix")
+                f_set_name = st.text_input("Set Name", placeholder="e.g. Base Set or Gym Heroes")
+                f_card_num = st.text_input("Card Number", placeholder="e.g. 68/102")
+                f_edition = st.selectbox("Edition / Variant", ["Unlimited", "1st Edition", "Shadowless", "Reverse Holo", "Promo", "1st Print"])
+            with f2:
+                f_condition = st.radio("Condition", ["Graded Slab", "Raw Single"], horizontal=True)
+                f_is_raw = 1 if f_condition == "Raw Single" else 0
+                f_co = st.selectbox("Grading Company", ["PSA", "CGC", "BGS", "ARS", "ACE", "SGC", "RAW"]) if not f_is_raw else "RAW"
+                f_grade_label = st.selectbox("Grade Tier", ["Gem Mint", "Pristine 10", "Black Label 10", "Mint", "Near Mint", "Raw Single"])
+                f_grade_num = st.number_input("Numerical Grade", min_value=1.0, max_value=10.0, value=10.0, step=0.5) if not f_is_raw else 0.0
+                f_cert = st.text_input("Certification Number", placeholder="e.g. 48291039") if not f_is_raw else ""
+            with f3:
+                f_lang = st.selectbox("Language", ["English", "Japanese", "German", "French", "Italian", "Spanish", "Korean", "Chinese"])
+                f_price = st.number_input("Purchase Price ($ USD)", min_value=0.0, value=25.0, step=5.0)
+                f_date = st.date_input("Purchase Date", value=datetime.today())
+                f_img = st.text_input("Card Image URL (optional)", placeholder="https://...")
 
-            submitted = st.form_submit_button("Save Slab to Vault")
-            if submitted:
-                if card_name:
+            st.markdown("---")
+            e1, e2 = st.columns([1, 3])
+            with e1:
+                f_is_err = st.checkbox("⚠️ Is this an Error Card?")
+            with e2:
+                f_err_type = st.text_input("Error Description (if applicable)", placeholder="e.g. HP 50 Error, No Rarity Symbol, Miscut...")
+
+            f_notes = st.text_area("Collector Notes", placeholder="Subgrades, provenance, or condition details...")
+
+            submit_card = st.form_submit_button("Save Card to Vault")
+            if submit_card:
+                if f_card_name:
                     add_card_to_collection({
-                        "card_name": card_name,
-                        "set_name": set_name or "Unknown Set",
-                        "card_number": card_number or "",
-                        "grading_company": grading_company,
-                        "grade": grade,
-                        "cert_number": cert_number or "",
-                        "purchase_price": purchase_price,
-                        "purchase_date": purchase_date.strftime("%Y-%m-%d"),
-                        "image_url": image_url or "https://images.pokemontcg.io/base1/68_hires.png",
-                        "notes": notes or "",
+                        "card_name": f_card_name,
+                        "set_name": f_set_name or "Unknown Set",
+                        "card_number": f_card_num or "",
+                        "grading_company": f_co,
+                        "grade": f_grade_num,
+                        "grade_label": f_grade_label,
+                        "cert_number": f_cert,
+                        "purchase_price": f_price,
+                        "purchase_date": f_date.strftime("%Y-%m-%d"),
+                        "edition": f_edition,
+                        "language": f_lang,
+                        "is_error": 1 if f_is_err else 0,
+                        "error_type": f_err_type if f_is_err else None,
+                        "is_raw": f_is_raw,
+                        "image_url": f_img or "https://images.pokemontcg.io/base1/68_hires.png",
+                        "notes": f_notes or "",
                     })
-                    st.success(f"Added {card_name} ({grading_company} {grade}) to Vault!")
+                    st.success(f"Added {f_card_name} ({f_edition} - {f_grade_label}) to Vault!")
                     st.rerun()
                 else:
-                    st.error("Please enter a Card Name.")
+                    st.error("Please provide a Card Name.")
 
-    # Grid Display of Slabs
+    # Grid Display of Slabs & Raw Cards
     if df_col.empty:
-        st.info("Your vault is currently empty. Add your first graded slab using the form above!")
+        st.info("Your vault is empty. Add your first card or slab above!")
     else:
-        # Display cards in 3 responsive columns
         cols = st.columns(3)
         for idx, row in df_col.iterrows():
             col_target = cols[idx % 3]
             with col_target:
-                badge_html = get_grading_badge_html(row["grading_company"], row["grade"])
+                badge_html = get_grading_badge_html(
+                    row.get("grading_company", "PSA"),
+                    row.get("grade", 10),
+                    row.get("grade_label", "Gem Mint"),
+                    row.get("is_raw", 0),
+                )
                 gain = row.get("unrealized_gain", 0.0)
                 roi = row.get("roi_percent", 0.0)
                 gain_color = "#4ade80" if gain >= 0 else "#f87171"
                 gain_sign = "+" if gain >= 0 else ""
 
+                error_badge = '<span class="badge-error">⚠️ ERROR CARD</span>' if row.get("is_error") == 1 else ""
                 img_src = row["image_url"] if row["image_url"] else "https://images.pokemontcg.io/base1/68_hires.png"
 
                 st.markdown(
                     f"""
                     <div class="slab-box">
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
                             <div>
-                                <div style="font-weight: 800; font-size: 1.1rem; color: #fff;">{row['card_name']}</div>
-                                <div style="color: #8c8d9a; font-size: 0.85rem;">{row['set_name']} • #{row['card_number']}</div>
+                                <div style="font-weight: 800; font-size: 1.05rem; color: #fff;">{row['card_name']}</div>
+                                <div style="color: #8c8d9a; font-size: 0.82rem;">{row['set_name']} • #{row['card_number']} ({row.get('edition', 'Unlimited')})</div>
                             </div>
-                            {badge_html}
+                            <div style="text-align: right;">
+                                {badge_html}
+                                <div style="margin-top: 4px;">{error_badge}</div>
+                            </div>
                         </div>
-                        <div style="text-align: center; margin: 12px 0;">
-                            <img src="{img_src}" style="max-height: 180px; max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" />
+                        <div style="text-align: center; margin: 10px 0;">
+                            <img src="{img_src}" style="max-height: 170px; max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" />
                         </div>
-                        <div style="background: #111217; padding: 10px 14px; border-radius: 10px; margin-top: 10px;">
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 4px;">
+                        <div style="background: #111217; padding: 8px 12px; border-radius: 8px; margin-top: 8px; font-size: 0.82rem;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                                <span style="color: #8c8d9a;">Language:</span>
+                                <span style="color: #ffffff; font-weight: 600;">{row.get('language', 'English')}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
                                 <span style="color: #8c8d9a;">Cost Basis:</span>
                                 <span style="color: #ffffff; font-weight: 600;">${row['purchase_price']:,.2f}</span>
                             </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 4px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
                                 <span style="color: #8c8d9a;">Market Est:</span>
                                 <span style="color: #ffd591; font-weight: 700;">${row['current_market_value']:,.2f}</span>
                             </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+                            <div style="display: flex; justify-content: space-between;">
                                 <span style="color: #8c8d9a;">Gain / ROI:</span>
                                 <span style="color: {gain_color}; font-weight: 700;">{gain_sign}${gain:,.2f} ({gain_sign}{roi:.1f}%)</span>
                             </div>
                         </div>
-                        <div style="margin-top: 8px; font-size: 0.75rem; color: #666; text-align: right;">
-                            Cert: {row['cert_number'] or 'N/A'} • Acquired: {row['purchase_date']}
+                        <div style="margin-top: 8px; font-size: 0.72rem; color: #666; text-align: right;">
+                            {f"Cert: {row['cert_number']}" if row.get('cert_number') else 'Raw'} • Acquired: {row['purchase_date']}
                         </div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
-                if st.button(f"🗑️ Remove", key=f"del_{row['id']}"):
+                if st.button(f"🗑️ Delete", key=f"del_{row['id']}"):
                     delete_card_from_collection(row["id"])
                     st.rerun()
 
 # -------------------------------------------------------------
-# TAB 2: Market Price Trends
+# TAB 2: Master Set Checklist & Google Sheets Sync
+# -------------------------------------------------------------
+with tab_master:
+    st.markdown("### 📜 Master Set Checklist & Catalog")
+
+    # Master Set Progress Bar Header
+    pct = master_metrics["completion_pct"]
+    st.markdown(
+        f"""
+        <div class="master-box">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-weight: 800; font-size: 1.2rem; color: #ffffff;">Vulpix Master Set Completion</div>
+                <div style="font-weight: 800; font-size: 1.4rem; color: #10b981;">{pct}%</div>
+            </div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" style="width: {pct}%;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #8c8d9a;">
+                <span>Owned: <strong style="color: #fff;">{master_metrics['owned_cards']}</strong> / {master_metrics['total_cards']}</span>
+                <span>Missing: <strong style="color: #f87171;">{master_metrics['missing_cards']}</strong> cards</span>
+                <span>Est. Raw Cost: <strong style="color: #ffd591;">${master_metrics['cost_to_complete_raw']:,.2f}</strong></span>
+                <span>Est. Grade 10 Cost: <strong style="color: #f59e0b;">${master_metrics['cost_to_complete_grade10']:,.2f}</strong></span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Filter Controls for Master Set Table
+    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+    with m_col1:
+        m_view = st.selectbox("View Filter", ["All Master Cards", "❌ Missing Cards Only", "✅ Owned Cards Only", "⚠️ Error Cards Only"])
+    with m_col2:
+        m_langs = ["All Languages"] + sorted(df_master["language"].dropna().unique().tolist())
+        m_sel_lang = st.selectbox("Language", m_langs)
+    with m_col3:
+        m_eds = ["All Editions"] + sorted(df_master["edition"].dropna().unique().tolist())
+        m_sel_ed = st.selectbox("Edition", m_eds)
+    with m_col4:
+        m_search = st.text_input("Search Set or Card Name", placeholder="e.g. Neo Destiny, Promo...")
+
+    # Filter Dataframe
+    filtered_master = df_master.copy()
+    if m_view == "❌ Missing Cards Only":
+        filtered_master = filtered_master[~filtered_master["is_owned"]]
+    elif m_view == "✅ Owned Cards Only":
+        filtered_master = filtered_master[filtered_master["is_owned"]]
+    elif m_view == "⚠️ Error Cards Only":
+        filtered_master = filtered_master[filtered_master["is_error"] == 1]
+
+    if m_sel_lang != "All Languages":
+        filtered_master = filtered_master[filtered_master["language"] == m_sel_lang]
+    if m_sel_ed != "All Editions":
+        filtered_master = filtered_master[filtered_master["edition"] == m_sel_ed]
+    if m_search:
+        filtered_master = filtered_master[
+            filtered_master["card_name"].str.contains(m_search, case=False, na=False) |
+            filtered_master["set_name"].str.contains(m_search, case=False, na=False)
+        ]
+
+    # Checklist Table
+    st.markdown(f"**Showing {len(filtered_master)} Cards in Master Catalog**")
+
+    # Render checklist cards or interactive table
+    display_df = filtered_master[[
+        "is_owned", "release_year", "card_name", "set_name", "card_number",
+        "edition", "language", "is_error", "est_raw_price", "est_grade10_price", "notes"
+    ]].copy()
+
+    display_df["Status"] = display_df["is_owned"].apply(lambda x: "✅ OWNED" if x else "❌ MISSING")
+    display_df["Error?"] = display_df["is_error"].apply(lambda x: "⚠️ Yes" if x == 1 else "No")
+
+    st.dataframe(
+        display_df[[
+            "Status", "release_year", "card_name", "set_name", "card_number",
+            "edition", "language", "Error?", "est_raw_price", "est_grade10_price", "notes"
+        ]].rename(columns={
+            "release_year": "Year",
+            "card_name": "Card Name",
+            "set_name": "Set / Expansion",
+            "card_number": "#",
+            "edition": "Edition",
+            "language": "Language",
+            "est_raw_price": "Est Raw ($)",
+            "est_grade10_price": "Est 10 ($)",
+            "notes": "Notes",
+        }),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("---")
+    st.markdown("#### 🔄 Import / Sync Google Sheet or CSV Catalog")
+    st.markdown(
+        "Have a custom spreadsheet tracking your Vulpix Master Set? Sync it here to automatically update prices, missing cards, and variants."
+    )
+
+    sync_col1, sync_col2 = st.columns(2)
+    with sync_col1:
+        st.markdown("##### 🌐 Sync via Google Sheets Public Link")
+        sheet_url_input = st.text_input(
+            "Google Sheet URL",
+            value="https://docs.google.com/spreadsheets/d/12RkRdPNwbFly1SXmCS7DQkB5Q5zQZcPAnLX-P8M_vNA/edit?gid=0#gid=0",
+        )
+        if st.button("🔄 Sync Google Sheet into Catalog"):
+            with st.spinner("Fetching and importing Google Sheet..."):
+                count, msg = sync_from_google_sheets_url(sheet_url_input)
+                if count > 0:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.warning(msg)
+                    st.info("💡 **Tip:** Ensure your Google Sheet is set to *'Anyone with the link can view'*, or download it as CSV and upload it on the right.")
+
+    with sync_col2:
+        st.markdown("##### 📁 Upload CSV File Directly")
+        uploaded_csv = st.file_uploader("Choose a CSV file", type=["csv"])
+        if uploaded_csv is not None:
+            if st.button("📥 Import Uploaded CSV"):
+                try:
+                    df_up = pd.read_csv(uploaded_csv)
+                    count, msg = sync_master_catalog_from_df(df_up)
+                    st.success(msg)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to parse CSV: {e}")
+
+# -------------------------------------------------------------
+# TAB 3: Market Price Trends
 # -------------------------------------------------------------
 with tab_trends:
-    st.markdown("### 📈 Graded Market Sales & Price Trends")
+    st.markdown("### 📈 Market Sales & Price Analytics")
 
     if df_market.empty:
-        st.info("No market sales data available yet. The background scraper will populate this table automatically.")
+        st.info("No market sales recorded yet.")
     else:
-        # Filter controls
         f1, f2, f3 = st.columns(3)
         with f1:
             all_variants = ["All Cards"] + sorted(df_market["card_name"].dropna().unique().tolist())
-            selected_variant = st.selectbox("Filter by Card", all_variants)
+            selected_variant = st.selectbox("Filter by Card Variant", all_variants)
         with f2:
-            all_cos = ["All Companies"] + sorted(df_market["grading_company"].dropna().unique().tolist())
-            selected_co = st.selectbox("Grading Company", all_cos)
+            all_conds = ["All Conditions", "Grade 10 Slabs", "Raw Singles"]
+            selected_cond = st.selectbox("Condition / Tier", all_conds)
         with f3:
-            all_grades = ["All Grades"] + sorted([f"{g:g}" for g in df_market["grade"].dropna().unique()], reverse=True)
-            selected_grade = st.selectbox("Grade", all_grades)
+            all_cos = ["All Grading Companies"] + sorted([c for c in df_market["grading_company"].dropna().unique() if c != "RAW"])
+            selected_co = st.selectbox("Grading Company", all_cos)
 
-        # Apply Filters
         filtered_df = df_market.copy()
         if selected_variant != "All Cards":
             filtered_df = filtered_df[filtered_df["card_name"] == selected_variant]
-        if selected_co != "All Companies":
+        if selected_cond == "Grade 10 Slabs":
+            filtered_df = filtered_df[(filtered_df["condition_type"] == "Graded") & (filtered_df["grade"] == 10.0)]
+        elif selected_cond == "Raw Singles":
+            filtered_df = filtered_df[filtered_df["condition_type"] == "Raw"]
+        if selected_co != "All Grading Companies":
             filtered_df = filtered_df[filtered_df["grading_company"] == selected_co]
-        if selected_grade != "All Grades":
-            filtered_df = filtered_df[filtered_df["grade"] == float(selected_grade)]
 
-        # Time Series Chart
         if not filtered_df.empty:
             filtered_df["display_date"] = pd.to_datetime(
                 filtered_df["sale_date"].fillna(filtered_df["scraped_at"])
@@ -258,19 +422,17 @@ with tab_trends:
                 filtered_df,
                 x="display_date",
                 y="total_price",
-                color="grading_company",
-                size="grade",
-                hover_data=["title", "total_price", "grade", "deal_rating"],
+                color="grade_label",
+                symbol="condition_type",
+                hover_data=["title", "total_price", "edition", "language", "deal_rating"],
                 labels={
                     "display_date": "Sale / Scraped Date",
                     "total_price": "Price ($ USD)",
-                    "grading_company": "Company",
+                    "grade_label": "Grade / Label",
                 },
-                title="Historical Sales & Listing Price Trajectory",
+                title="Historical Sales & Listing Trajectory (Raw vs Slabs)",
                 template="plotly_dark",
             )
-
-            # Add trend line
             fig.update_traces(marker=dict(size=9, line=dict(width=1, color="DarkSlateGrey")))
             fig.update_layout(
                 paper_bgcolor="#181920",
@@ -280,20 +442,21 @@ with tab_trends:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # Historical Sales Table
-            st.markdown("#### 📋 Historical Sales Records")
             st.dataframe(
                 filtered_df[[
-                    "sale_date", "card_name", "grading_company", "grade",
-                    "total_price", "deal_rating", "title"
+                    "sale_date", "card_name", "condition_type", "grading_company",
+                    "grade_label", "edition", "language", "total_price", "deal_rating", "title"
                 ]].rename(columns={
                     "sale_date": "Date",
                     "card_name": "Card",
-                    "grading_company": "Slab",
-                    "grade": "Grade",
+                    "condition_type": "Condition",
+                    "grading_company": "Company",
+                    "grade_label": "Grade Label",
+                    "edition": "Edition",
+                    "language": "Lang",
                     "total_price": "Price ($)",
                     "deal_rating": "Appraisal",
-                    "title": "eBay Title",
+                    "title": "eBay Listing Title",
                 }),
                 use_container_width=True,
                 hide_index=True,
@@ -302,77 +465,98 @@ with tab_trends:
             st.warning("No sales matched the selected filters.")
 
 # -------------------------------------------------------------
-# TAB 3: AI Deal Radar
+# TAB 4: AI Deal Radar
 # -------------------------------------------------------------
 with tab_deals:
     st.markdown("### 🎯 Google Gemini AI Deal Radar")
     st.markdown(
-        "Automated appraisal engine scans every scraped eBay listing against the last 10 comparable sales to flag undervalued cards."
+        "Automated appraisal engine scans every scraped eBay listing against the last 10 comparable sales to flag undervalued cards across Grade 10 slabs and Raw singles."
     )
 
-    deal_filter_opt = st.radio(
-        "Filter Deals:",
-        ["🔥 Amazing Deals (>=20% Discount)", "✨ All Value Deals (Amazing + Good)", "All Market Listings"],
-        horizontal=True,
-    )
+    d_col1, d_col2 = st.columns(2)
+    with d_col1:
+        deal_tier_opt = st.radio(
+            "Deal Tier Filter:",
+            ["🔥 Amazing Deals (>=30% Off)", "⭐ Great & Amazing Deals (>=15% Off)", "All Value Deals (Amazing/Great/Good)", "All Listings"],
+            horizontal=True,
+        )
+    with d_col2:
+        deal_cond_opt = st.selectbox("Condition Filter:", ["All Conditions", "Grade 10 Slabs Only", "Raw Singles Only"])
 
-    if "Amazing Deals" in deal_filter_opt:
-        df_deals = load_deals_df(deal_filter="amazing_deal")
-    elif "All Value Deals" in deal_filter_opt:
-        df_deals = load_deals_df(deal_filter="all_deals")
-    else:
-        df_deals = load_deals_df()
+    tier_map = {
+        "🔥 Amazing Deals (>=30% Off)": "amazing_deal",
+        "⭐ Great & Amazing Deals (>=15% Off)": "great_and_amazing",
+        "All Value Deals (Amazing/Great/Good)": "all_deals",
+        "All Listings": None,
+    }
+
+    df_deals = load_deals_df(deal_filter=tier_map.get(deal_tier_opt), condition_filter=deal_cond_opt)
 
     if df_deals.empty:
-        st.info("No deals matching your filter criteria right now. Check back after the next scraper cycle!")
+        st.info("No active deals found matching your filter criteria right now.")
     else:
+        st.markdown(f"**Found {len(df_deals)} deals matching criteria:**")
         for _, deal in df_deals.iterrows():
             rating = deal.get("deal_rating", "unrated")
-            badge_deal = (
-                '<span class="deal-amazing">🔥 AMAZING DEAL</span>'
-                if rating == "amazing_deal"
-                else '<span class="deal-good">✨ GOOD DEAL</span>'
+            if rating == "amazing_deal":
+                badge_deal = '<span class="deal-amazing">🔥 AMAZING DEAL</span>'
+                border_color = '#ef4444'
+            elif rating == "great_deal":
+                badge_deal = '<span class="deal-great">⭐ GREAT DEAL</span>'
+                border_color = '#f59e0b'
+            else:
+                badge_deal = '<span class="deal-good">✨ GOOD DEAL</span>'
+                border_color = '#22c55e'
+
+            grading_badge = get_grading_badge_html(
+                deal["grading_company"],
+                deal["grade"],
+                deal.get("grade_label", "Gem Mint"),
+                1 if deal.get("condition_type") == "Raw" else 0,
             )
-            grading_badge = get_grading_badge_html(deal["grading_company"], deal["grade"])
 
             discount = deal.get("discount_percentage", 0.0) or 0.0
             fair_val = deal.get("fair_value_estimate", deal["total_price"]) or deal["total_price"]
-            rationale = deal.get("ai_rationale") or "No appraisal rationale provided."
+            rationale = deal.get("ai_rationale") or "AI appraisal calculated from comparable market sales."
 
             with st.container():
                 st.markdown(
                     f"""
-                    <div style="background: #181920; border: 1px solid {'#ef4444' if rating == 'amazing_deal' else '#22c55e'}; border-radius: 12px; padding: 18px; margin-bottom: 16px;">
+                    <div style="background: #181920; border: 1px solid {border_color}; border-radius: 12px; padding: 16px; margin-bottom: 14px;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div>
                                 {badge_deal} &nbsp; {grading_badge}
-                                <span style="font-weight: 800; font-size: 1.15rem; color: #fff; margin-left: 8px;">{deal['title']}</span>
+                                <span style="font-weight: 800; font-size: 1.1rem; color: #fff; margin-left: 6px;">{deal['title']}</span>
                             </div>
                             <div style="text-align: right;">
-                                <span style="color: #8c8d9a; font-size: 0.85rem;">Listed: </span>
-                                <span style="font-size: 1.3rem; font-weight: 800; color: #4ade80;">${deal['total_price']:,.2f}</span>
+                                <span style="color: #8c8d9a; font-size: 0.82rem;">Listed: </span>
+                                <span style="font-size: 1.25rem; font-weight: 800; color: #4ade80;">${deal['total_price']:,.2f}</span>
                             </div>
                         </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; background: #111217; padding: 12px 16px; border-radius: 8px; margin: 12px 0;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; background: #111217; padding: 10px 14px; border-radius: 8px; margin: 10px 0; font-size: 0.85rem;">
                             <div>
-                                <div style="color: #8c8d9a; font-size: 0.75rem; text-transform: uppercase;">Estimated Fair Value</div>
-                                <div style="color: #ffffff; font-weight: 700; font-size: 1.05rem;">${fair_val:,.2f}</div>
+                                <div style="color: #8c8d9a; font-size: 0.72rem; text-transform: uppercase;">Fair Market Value</div>
+                                <div style="color: #ffffff; font-weight: 700; font-size: 1.0rem;">${fair_val:,.2f}</div>
                             </div>
                             <div>
-                                <div style="color: #8c8d9a; font-size: 0.75rem; text-transform: uppercase;">Discount Below Market</div>
-                                <div style="color: #f87171; font-weight: 800; font-size: 1.05rem;">{discount:+.1f}% OFF</div>
+                                <div style="color: #8c8d9a; font-size: 0.72rem; text-transform: uppercase;">Discount Below Market</div>
+                                <div style="color: #f87171; font-weight: 800; font-size: 1.0rem;">{discount:+.1f}% OFF</div>
                             </div>
                             <div>
-                                <div style="color: #8c8d9a; font-size: 0.75rem; text-transform: uppercase;">Listing Format</div>
-                                <div style="color: #ffffff; font-weight: 600;">{deal.get('listing_type', 'Buy It Now')}</div>
+                                <div style="color: #8c8d9a; font-size: 0.72rem; text-transform: uppercase;">Edition / Language</div>
+                                <div style="color: #ffffff; font-weight: 600;">{deal.get('edition', 'Unlimited')} ({deal.get('language', 'English')})</div>
+                            </div>
+                            <div>
+                                <div style="color: #8c8d9a; font-size: 0.72rem; text-transform: uppercase;">Condition Tier</div>
+                                <div style="color: #ffffff; font-weight: 600;">{deal.get('condition_type', 'Graded')} ({deal.get('grade_label', 'Gem Mint')})</div>
                             </div>
                         </div>
-                        <div style="color: #d1d5db; font-size: 0.9rem; font-style: italic; margin-bottom: 10px;">
+                        <div style="color: #d1d5db; font-size: 0.88rem; font-style: italic; margin-bottom: 8px;">
                             💬 <strong>AI Valuation Rationale:</strong> {rationale}
                         </div>
                         <div style="text-align: right;">
-                            <a href="{deal['listing_url']}" target="_blank" style="background: linear-gradient(135deg, #ff7a45, #ff4d4f); color: white; text-decoration: none; padding: 8px 18px; border-radius: 8px; font-weight: 700; font-size: 0.85rem; display: inline-block;">
-                                🛒 View Listing on eBay →
+                            <a href="{deal['listing_url']}" target="_blank" style="background: linear-gradient(135deg, #ff7a45, #ff4d4f); color: white; text-decoration: none; padding: 6px 16px; border-radius: 8px; font-weight: 700; font-size: 0.82rem; display: inline-block;">
+                                🛒 View & Buy on eBay →
                             </a>
                         </div>
                     </div>
@@ -381,57 +565,64 @@ with tab_deals:
                 )
 
 # -------------------------------------------------------------
-# TAB 4: System Diagnostics & Settings
+# TAB 5: System Controls & Diagnostics
 # -------------------------------------------------------------
 with tab_settings:
-    st.markdown("### ⚙️ System Controls & Diagnostics")
+    st.markdown("### ⚙️ System Controls & Health")
 
     col_s1, col_s2 = st.columns(2)
 
     with col_s1:
-        st.markdown("#### 🗄️ Database & Storage")
+        st.markdown("#### 🗄️ Database & Catalog Diagnostics")
         db_path = get_db_path()
         file_size_kb = round(os.path.getsize(db_path) / 1024, 2) if os.path.exists(db_path) else 0
 
         st.markdown(f"- **Database Path:** `{db_path}`")
         st.markdown(f"- **Database File Size:** `{file_size_kb} KB`")
-        st.markdown(f"- **Collection Records:** `{len(df_col)} slabs`")
+        st.markdown(f"- **Master Set Catalog:** `{master_metrics['total_cards']} unique cards`")
+        st.markdown(f"- **Personal Vault Records:** `{len(df_col)} items`")
         st.markdown(f"- **Historical Sales Records:** `{len(df_market)} listings`")
 
     with col_s2:
-        st.markdown("#### 🔔 Push Notifications (Gotify)")
+        st.markdown("#### 🔔 Gotify Push Alerts")
         gotify_url = os.getenv("GOTIFY_URL", "http://gotify:80")
         st.markdown(f"- **Gotify Server URL:** `{gotify_url}`")
-        st.markdown(f"- **Alert Priority:** `8 (High / Urgent)`")
+        st.markdown(f"- **Alert Levels:** `Priority 8 (Amazing Deals), Priority 6 (Great Deals)`")
 
-        if st.button("🔔 Send Test Push Notification"):
+        if st.button("🔔 Send Test Push Alert"):
+            import sys
+            sys.path.append(os.path.join(os.path.dirname(__file__), "..", "scraper"))
             from notifier import send_gotify_alert
             test_listing = {
-                "listing_id": "test_alert_001",
-                "title": "Base Set 1st Edition Vulpix PSA 10 (TEST ALERT)",
-                "card_name": "Base Set 1st Edition Vulpix #68",
-                "grading_company": "PSA",
+                "listing_id": "test_alert_002",
+                "title": "Light Vulpix Neo Destiny 1st Edition CGC Pristine 10 (TEST ALERT)",
+                "card_name": "Light Vulpix",
+                "grading_company": "CGC",
                 "grade": 10.0,
-                "total_price": 99.00,
-                "price": 99.00,
+                "grade_label": "Pristine 10",
+                "condition_type": "Graded",
+                "edition": "1st Edition",
+                "language": "English",
+                "total_price": 125.00,
+                "price": 125.00,
                 "listing_url": "https://www.ebay.com",
             }
             test_appraisal = {
                 "deal_rating": "amazing_deal",
-                "fair_value_estimate": 240.00,
-                "discount_percentage": 58.7,
-                "rationale": "This is a test alert from The Vulpix Vault dashboard to verify Gotify push notifications.",
+                "fair_value_estimate": 280.00,
+                "discount_percentage": 55.4,
+                "rationale": "Pristine 10 gold label copy listed at less than standard Gem Mint fair market price.",
             }
             res = send_gotify_alert(test_listing, test_appraisal)
             if res:
-                st.success("Test notification successfully dispatched to Gotify!")
+                st.success("Test notification dispatched to Gotify!")
             else:
-                st.warning("Could not reach Gotify. Ensure GOTIFY_APP_TOKEN is configured in .env and Gotify container is up.")
+                st.warning("Could not reach Gotify. Ensure GOTIFY_APP_TOKEN is configured in .env.")
 
     st.markdown("---")
-    st.markdown("#### 🔄 Manual Scraper Trigger")
-    if st.button("⚡ Run eBay Scraper & AI Appraisal Cycle Now"):
-        with st.spinner("Scraping eBay & appraising deals..."):
+    st.markdown("#### ⚡ Trigger Multi-Query eBay Scrape Now")
+    if st.button("⚡ Run Scraper & AI Appraisal Cycle"):
+        with st.spinner("Scraping eBay for Raw, Grade 10, and Error Vulpix cards..."):
             try:
                 import sys
                 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "scraper"))
@@ -440,4 +631,4 @@ with tab_settings:
                 st.success("Scrape cycle completed!")
                 st.rerun()
             except Exception as e:
-                st.error(f"Error running scraper: {e}")
+                st.error(f"Scraper error: {e}")

@@ -1,13 +1,12 @@
 """
 Main automation daemon for The Vulpix Vault.
-Runs APScheduler to scrape eBay for graded Vulpix cards, appraises them via Gemini AI,
-stores data in SQLite, and sends Gotify push alerts for amazing deals.
+Runs APScheduler to scrape eBay for graded Vulpix cards, raw singles, and error cards,
+appraises them via Gemini AI, stores data in SQLite, and sends Gotify alerts for top deals.
 """
 
 import os
 import signal
 import sys
-import time
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -27,65 +26,85 @@ from seed_data import seed_database_if_empty
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
+SEARCH_QUERIES = [
+    "Vulpix (PSA 10, CGC 10, BGS 10, Pristine, Black Label)",
+    "Vulpix Pokemon card 1st edition (raw, PSA, CGC)",
+    "Vulpix shadowless Pokemon card",
+    "Vulpix error Pokemon card (HP 50, no rarity)",
+    "Japanese Vulpix Pokemon card (CoroCoro, Vending, Web)",
+    "Alolan Vulpix VSTAR V (PSA 10, raw)",
+]
+
 
 def run_scrape_and_appraisal_cycle() -> None:
-    """Executes a full scraping, appraisal, and alerting cycle."""
-    search_query = os.getenv("EBAY_SEARCH_QUERY", "Vulpix graded (PSA, CGC, BGS)")
-    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting scrape cycle for: '{search_query}'")
+    """Executes a full scraping, appraisal, and alerting cycle across multiple target queries."""
+    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting multi-tier scrape cycle...")
 
-    try:
-        listings = scrape_ebay_listings(search_query)
-        print(f"[Scraper] Found {len(listings)} listings from eBay search.")
+    new_count = 0
+    amazing_deals_count = 0
+    great_deals_count = 0
 
-        new_count = 0
-        amazing_deals_count = 0
+    for query in SEARCH_QUERIES:
+        print(f"[Scraper] Querying: '{query}'")
+        try:
+            listings = scrape_ebay_listings(query)
+            print(f"[Scraper] Found {len(listings)} results for '{query}'")
 
-        for item in listings:
-            listing_id = item["listing_id"]
+            for item in listings:
+                listing_id = item["listing_id"]
 
-            if is_listing_recorded(listing_id):
-                continue
+                if is_listing_recorded(listing_id):
+                    continue
 
-            new_count += 1
-            print(f"\n[Scraper] Analyzing new listing: {item['title']} (${item['total_price']:.2f})")
+                new_count += 1
+                cond_str = (
+                    f"{item.get('grading_company')} {item.get('grade_label')}"
+                    if item.get("condition_type") == "Graded"
+                    else "Raw"
+                )
+                print(f"[Scraper] New listing: {item['title']} (${item['total_price']:.2f}) [{cond_str}]")
 
-            # Fetch recent comparable sales for appraisal context
-            comps = get_recent_comparables(
-                card_name=item["card_name"],
-                grading_company=item["grading_company"],
-                grade=item["grade"],
-                limit=10,
-            )
+                # Fetch recent comparable sales for appraisal context
+                comps = get_recent_comparables(
+                    card_name=item["card_name"],
+                    grading_company=item["grading_company"],
+                    grade=item["grade"],
+                    condition_type=item["condition_type"],
+                    limit=10,
+                )
 
-            # Gemini AI Appraisal
-            appraisal = appraise_listing(item, comps)
-            item["deal_rating"] = appraisal.get("deal_rating", "unrated")
-            item["fair_value_estimate"] = appraisal.get("fair_value_estimate")
-            item["discount_percentage"] = appraisal.get("discount_percentage")
-            item["ai_rationale"] = appraisal.get("rationale")
-            item["sale_date"] = datetime.now().strftime("%Y-%m-%d")
+                # Gemini AI Appraisal
+                appraisal = appraise_listing(item, comps)
+                item["deal_rating"] = appraisal.get("deal_rating", "unrated")
+                item["fair_value_estimate"] = appraisal.get("fair_value_estimate")
+                item["discount_percentage"] = appraisal.get("discount_percentage")
+                item["ai_rationale"] = appraisal.get("rationale")
+                item["sale_date"] = datetime.now().strftime("%Y-%m-%d")
 
-            print(
-                f"[Appraiser] Rating: {item['deal_rating'].upper()} | "
-                f"Est. Value: ${item['fair_value_estimate']} | "
-                f"Discount: {item['discount_percentage']}%"
-            )
+                print(
+                    f"[Appraiser] Rating: {item['deal_rating'].upper()} | "
+                    f"Est. Value: ${item['fair_value_estimate']} | "
+                    f"Discount: {item['discount_percentage']}%"
+                )
 
-            # Store in SQLite database
-            insert_market_sale(item)
+                # Store in SQLite database
+                insert_market_sale(item)
 
-            # Trigger Gotify Push Notification for Amazing Deals
-            if item["deal_rating"] == "amazing_deal":
-                amazing_deals_count += 1
-                send_gotify_alert(item, appraisal)
+                # Trigger Gotify Push Notification for Amazing and Great Deals
+                if item["deal_rating"] in ["amazing_deal", "great_deal"]:
+                    if item["deal_rating"] == "amazing_deal":
+                        amazing_deals_count += 1
+                    else:
+                        great_deals_count += 1
+                    send_gotify_alert(item, appraisal)
 
-        print(
-            f"\n[Scraper] Cycle finished: {new_count} new listings recorded, "
-            f"{amazing_deals_count} amazing deals notified."
-        )
+        except Exception as e:
+            print(f"[Scraper] Error during query '{query}': {e}")
 
-    except Exception as e:
-        print(f"[Scraper] Error in scraping cycle: {e}")
+    print(
+        f"\n[Scraper] Cycle completed: {new_count} new listings recorded, "
+        f"{amazing_deals_count} amazing deals and {great_deals_count} great deals found."
+    )
 
 
 def main() -> None:
@@ -97,7 +116,6 @@ def main() -> None:
     init_db()
     seed_database_if_empty()
 
-    # Determine interval (default: 24 hours)
     interval_hours_str = os.getenv("SCRAPE_INTERVAL_HOURS", "24")
     try:
         interval_hours = float(interval_hours_str)
@@ -106,14 +124,13 @@ def main() -> None:
 
     print(f"[Scheduler] Configured scrape interval: {interval_hours} hours.")
 
-    # Initialize APScheduler
     scheduler = BlockingScheduler()
     scheduler.add_job(
         run_scrape_and_appraisal_cycle,
         "interval",
         hours=interval_hours,
         id="vulpix_scraper_job",
-        next_run_time=datetime.now(),  # Run immediately upon start
+        next_run_time=datetime.now(),
     )
 
     def handle_shutdown(signum, frame):
