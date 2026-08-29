@@ -1,7 +1,7 @@
 """
 Custom CSS styling and HTML components for The Vulpix Vault Streamlit Dashboard.
-Includes special grade badges (Pristine 10, Black Label 10), Error indicators,
-Population (POP) badges, PriceCharting benchmarks, and Master Set progress tracking.
+Includes special grade badges (Pristine 10, Black Label 10), 1st Edition badges,
+Error indicators, Population (POP) badges, PriceCharting benchmarks, and Master Set progress tracking.
 """
 
 from typing import Any, Optional
@@ -99,126 +99,130 @@ def apply_custom_styles():
             margin: 10px 0;
         }
         .progress-bar-fill {
-            background: linear-gradient(90deg, #ff7a45, #f59e0b, #10b981);
+            background: linear-gradient(90deg, #ff7a45 0%, #10b981 100%);
             height: 100%;
             border-radius: 10px;
-            transition: width 0.4s ease;
+            transition: width 0.6s ease;
         }
 
-        /* Slab Card */
+        /* Card Slab Display Containers */
         .slab-box {
             background: #181920;
-            border-radius: 14px;
             border: 1px solid rgba(255, 255, 255, 0.08);
-            padding: 16px;
-            margin-bottom: 18px;
-            transition: all 0.2s ease-in-out;
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 16px;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
         }
         .slab-box:hover {
-            border-color: #ff7a45;
-            box-shadow: 0 8px 24px rgba(255, 122, 69, 0.15);
+            border-color: rgba(255, 122, 69, 0.45);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
         }
 
-        /* Population Badges */
-        .badge-pop-1 {
-            background: linear-gradient(135deg, #7c3aed, #4f46e5);
-            color: #ffffff;
-            border: 1px solid #c084fc;
-            padding: 3px 8px;
-            border-radius: 6px;
-            font-weight: 800;
-            font-size: 0.72rem;
-            display: inline-block;
-            box-shadow: 0 2px 6px rgba(124, 58, 237, 0.4);
-        }
-        .badge-low-pop {
-            background: rgba(168, 85, 247, 0.2);
-            color: #c084fc;
-            border: 1px solid #a855f7;
-            padding: 3px 8px;
-            border-radius: 6px;
-            font-weight: 700;
-            font-size: 0.72rem;
-            display: inline-block;
-        }
-
-        /* Grading Badges */
-        .badge-black-label {
-            background: #000000;
-            color: #f6e05e;
-            border: 1.5px solid #d4af37;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-weight: 800;
-            font-size: 0.8rem;
-            display: inline-block;
-            box-shadow: 0 2px 8px rgba(212, 175, 55, 0.4);
-            letter-spacing: 0.5px;
-        }
-        .badge-pristine {
-            background: linear-gradient(135deg, #059669, #047857);
-            color: white;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-weight: 800;
-            font-size: 0.8rem;
-            display: inline-block;
-            box-shadow: 0 2px 6px rgba(16, 185, 129, 0.4);
-        }
+        /* Badges */
         .badge-psa {
-            background: linear-gradient(135deg, #d32f2f, #9a0007);
-            color: white;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-weight: 700;
-            font-size: 0.8rem;
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid #ef4444;
+            color: #f87171;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-weight: 800;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
             display: inline-block;
-            box-shadow: 0 2px 6px rgba(211, 47, 47, 0.4);
         }
         .badge-cgc {
-            background: linear-gradient(135deg, #0288d1, #005b9f);
-            color: white;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-weight: 700;
-            font-size: 0.8rem;
+            background: rgba(59, 130, 246, 0.15);
+            border: 1px solid #3b82f6;
+            color: #60a5fa;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-weight: 800;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
             display: inline-block;
-            box-shadow: 0 2px 6px rgba(2, 136, 209, 0.4);
         }
         .badge-bgs {
-            background: linear-gradient(135deg, #d4af37, #aa820a);
-            color: #121212;
-            padding: 4px 10px;
-            border-radius: 6px;
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid #f59e0b;
+            color: #fbbf24;
+            padding: 2px 8px;
+            border-radius: 12px;
             font-weight: 800;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
             display: inline-block;
-            box-shadow: 0 2px 6px rgba(212, 175, 55, 0.4);
+        }
+        .badge-pristine {
+            background: linear-gradient(135deg, rgba(236, 72, 153, 0.3), rgba(168, 85, 247, 0.3));
+            border: 1px solid #ec4899;
+            color: #f472b6;
+            padding: 2px 9px;
+            border-radius: 12px;
+            font-weight: 800;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
+            display: inline-block;
+        }
+        .badge-black-label {
+            background: #09090b;
+            border: 1px solid #eab308;
+            color: #facc15;
+            padding: 2px 9px;
+            border-radius: 12px;
+            font-weight: 900;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
+            display: inline-block;
+            box-shadow: 0 0 8px rgba(234, 179, 8, 0.4);
         }
         .badge-raw {
-            background: linear-gradient(135deg, #475569, #334155);
-            color: #e2e8f0;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-weight: 700;
-            font-size: 0.8rem;
-            display: inline-block;
-            border: 1px solid #64748b;
-        }
-        .badge-error {
-            background: rgba(236, 72, 153, 0.2);
-            color: #f472b6;
-            border: 1px solid #ec4899;
-            padding: 3px 8px;
-            border-radius: 6px;
+            background: rgba(148, 163, 184, 0.15);
+            border: 1px solid #94a3b8;
+            color: #cbd5e1;
+            padding: 2px 8px;
+            border-radius: 12px;
             font-weight: 700;
             font-size: 0.75rem;
             display: inline-block;
         }
+        .badge-error {
+            background: rgba(220, 38, 38, 0.25);
+            border: 1px solid #dc2626;
+            color: #fca5a5;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-weight: 800;
+            font-size: 0.72rem;
+            display: inline-block;
+        }
+        .badge-low-pop {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid #f59e0b;
+            color: #fbbf24;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-weight: 800;
+            font-size: 0.72rem;
+            display: inline-block;
+        }
+        .badge-pop-1 {
+            background: linear-gradient(135deg, rgba(234, 179, 8, 0.3), rgba(249, 115, 22, 0.3));
+            border: 1px solid #eab308;
+            color: #fef08a;
+            padding: 2px 9px;
+            border-radius: 12px;
+            font-weight: 900;
+            font-size: 0.72rem;
+            display: inline-block;
+            box-shadow: 0 0 10px rgba(234, 179, 8, 0.4);
+        }
 
         /* Deal Badges */
         .deal-amazing {
-            background: rgba(239, 68, 68, 0.15);
+            background: rgba(239, 68, 68, 0.2);
             border: 1px solid #ef4444;
             color: #f87171;
             padding: 4px 12px;
@@ -226,14 +230,15 @@ def apply_custom_styles():
             font-weight: 800;
             font-size: 0.8rem;
             display: inline-block;
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
         }
         .deal-great {
-            background: rgba(245, 158, 11, 0.15);
+            background: rgba(245, 158, 11, 0.2);
             border: 1px solid #f59e0b;
             color: #fbbf24;
             padding: 4px 12px;
             border-radius: 20px;
-            font-weight: 700;
+            font-weight: 800;
             font-size: 0.8rem;
             display: inline-block;
         }
@@ -331,6 +336,22 @@ def render_header():
         """,
         unsafe_allow_html=True,
     )
+
+
+def get_edition_badge_html(edition: str) -> str:
+    """Returns styled HTML badge for 1st Edition, Shadowless, Reverse Holo, etc."""
+    ed_lower = str(edition).lower()
+    if "1st" in ed_lower or "first" in ed_lower:
+        return '<span style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.15)); border: 1px solid #f59e0b; color: #fbbf24; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem; letter-spacing: 0.5px;">🥇 1ST EDITION</span>'
+    if "shadowless" in ed_lower:
+        return '<span style="background: rgba(168, 85, 247, 0.2); border: 1px solid #a855f7; color: #c084fc; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">SHADOWLESS</span>'
+    if "reverse" in ed_lower:
+        return '<span style="background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; color: #60a5fa; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">REVERSE HOLO</span>'
+    if "promo" in ed_lower:
+        return '<span style="background: rgba(236, 72, 153, 0.2); border: 1px solid #ec4899; color: #f472b6; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">PROMO</span>'
+    if "4th print" in ed_lower or "1999-2000" in ed_lower:
+        return '<span style="background: rgba(20, 184, 166, 0.2); border: 1px solid #14b8a6; color: #2dd4bf; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">UK / 4TH PRINT</span>'
+    return ""
 
 
 def get_pop_badge_html(pop_grade10: int, pop_pristine10: int = 0) -> str:

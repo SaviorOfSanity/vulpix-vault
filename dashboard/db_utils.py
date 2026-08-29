@@ -1,9 +1,9 @@
 """
 Database utility module for Streamlit Dashboard.
 100% Self-contained: manages SQLite WAL mode, Master Set catalog, collection CRUD,
-automatic card name verification and image enrichment via Pokemon.com & Pokecardex,
+intelligent 268-card Google Sheets & CSV parser with 1st Edition and Error detection,
 system settings persistence, multi-fallback Gotify push dispatcher, sniper watchlist,
-Google Sheets sync, and CSV diagnostics.
+and interactive Pre-Import Verification preview.
 """
 
 import io
@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
-from metadata_resolver import resolve_card_metadata
+from metadata_resolver import VULPIX_KNOWN_SET_INDEX, extract_base_number, normalize_str, resolve_card_metadata
 
 DEFAULT_DB_PATH = os.getenv("DB_PATH", "/data/vulpix_vault.db")
 
@@ -320,7 +320,6 @@ def send_gotify_alert(
     if env_url:
         url_candidates.append(env_url.rstrip("/"))
 
-    # Standard internal docker and local network fallbacks
     url_candidates.extend([
         "http://gotify:80",
         "http://vulpix-gotify:80",
@@ -408,8 +407,10 @@ def auto_enrich_master_catalog(force_all: bool = True) -> Tuple[int, str]:
             new_rarity = resolved["rarity"]
 
             should_update = False
-            # Differentiate generic 'Vulpix' into specific variants like 'Blaine's Vulpix'
-            if c["card_name"].strip().lower() in ["vulpix", "", "none", "nan", "null"] and new_name != "Vulpix":
+            # Differentiate generic 'Vulpix' or corrupted '1999.0' into specific variants
+            if c["card_name"].strip().lower() in ["vulpix", "1999.0", "1999", "", "none", "nan", "null"] and new_name != "Vulpix":
+                should_update = True
+            elif c["card_name"].startswith("199") or c["card_name"].startswith("200") or c["card_name"].startswith("201") or c["card_name"].startswith("202"):
                 should_update = True
             elif force_all and new_name != c["card_name"]:
                 should_update = True
@@ -440,6 +441,281 @@ def auto_enrich_master_catalog(force_all: bool = True) -> Tuple[int, str]:
                 updated += 1
 
     return updated, f"Successfully verified and updated metadata & high-res images for {updated} cards!"
+
+
+# =============================================================
+# Intelligent Card & Sheet Parsing Engine
+# =============================================================
+
+def parse_card_row_from_sheet(row: Any) -> Dict[str, Any]:
+    """
+    Intelligently parses any Google Sheet or CSV row:
+    - Extracts true Card Name (Blaine's Vulpix, Brock's Vulpix, Light Vulpix, Alolan Vulpix, etc.).
+    - Extracts true Edition (1st Edition, Shadowless, Reverse Holo, Promo, Unlimited).
+    - Extracts Error descriptions cleanly into error fields without polluting set names.
+    - Resolves official images and population metrics.
+    """
+    # 1. Extract raw strings
+    set_name = str(row.get("Set / Source") or row.get("set_name") or row.get("Set") or "Unknown Set").strip()
+    if set_name.lower() in ["nan", "none", ""]:
+        set_name = "Unknown Set"
+
+    card_num = str(row.get("Card #") or row.get("card_number") or row.get("Number") or "").strip()
+    if card_num.lower() in ["nan", "none"]:
+        card_num = ""
+
+    variant = str(row.get("Variant / Stamp / Code") or row.get("variant") or row.get("Variant") or "").strip()
+    if variant.lower() in ["nan", "none"]:
+        variant = ""
+
+    error_notes = str(row.get("Error / Notes") or row.get("error_description") or row.get("Error") or "").strip()
+    if error_notes.lower() in ["nan", "none"]:
+        error_notes = ""
+
+    is_1st_raw = str(row.get("1st Ed?") or row.get("1st Edition") or row.get("1st Ed") or row.get("edition") or "").strip().lower()
+    is_1st = is_1st_raw in ["yes", "true", "1", "1st edition", "1st", "y"]
+
+    # 2. Determine True Card Name
+    raw_name_input = str(row.get("Card Name") or row.get("card_name") or "").strip()
+    v_low = variant.lower()
+    s_low = set_name.lower()
+
+    if raw_name_input and raw_name_input.lower() not in ["vulpix", "1999.0", "1999", "2000.0", "2000", "nan", "null", "none", ""]:
+        card_name = raw_name_input
+    elif "blaine's vulpix" in v_low or "blaine" in v_low:
+        card_name = "Blaine's Vulpix"
+    elif "brock's vulpix" in v_low or "brock" in v_low:
+        card_name = "Brock's Vulpix"
+    elif "light vulpix" in v_low or "light" in v_low:
+        card_name = "Light Vulpix"
+    elif "alolan vulpix vstar" in v_low:
+        card_name = "Alolan Vulpix VSTAR"
+    elif "alolan vulpix v" in v_low:
+        card_name = "Alolan Vulpix V"
+    elif "alolan" in v_low or "alolan" in s_low:
+        card_name = "Alolan Vulpix"
+    elif "delta" in v_low or "delta" in s_low:
+        card_name = "Vulpix (Delta Species)"
+    elif "karen" in v_low:
+        card_name = "Karen's Vulpix"
+    elif "pikachu" in v_low:
+        card_name = f"Pikachu ({variant})"
+    else:
+        card_name = "Vulpix"
+
+    # 3. Determine Edition
+    if is_1st:
+        edition = "1st Edition"
+    elif "shadowless" in v_low:
+        edition = "Shadowless"
+    elif "reverse" in v_low:
+        edition = "Reverse Holo"
+    elif "promo" in s_low or "promo" in v_low:
+        edition = "Promo"
+    elif "1999-2000" in v_low or "4th print" in s_low:
+        edition = "4th Print (1999-2000)"
+    elif variant and variant not in ["Non-Holo", "Holofoil", "Glossy"]:
+        edition = variant
+    else:
+        edition = "Unlimited"
+
+    # 4. Determine Language
+    lang = str(row.get("Language") or row.get("language") or "English").strip()
+    if lang.lower() in ["nan", "none", ""]:
+        lang = "English"
+
+    # 5. Determine Year
+    year_val = row.get("Release Date") or row.get("release_year") or row.get("Year")
+    try:
+        year = int(float(year_val)) if pd.notna(year_val) else 2000
+    except ValueError:
+        year = 2000
+
+    # 6. Metadata Resolver for Official Scans
+    clean_set_norm = normalize_str(set_name)
+    clean_num_norm = extract_base_number(card_num)
+    img_url = "https://images.pokemontcg.io/base1/68_hires.png"
+    pop_grade10 = 0
+
+    for (idx_set, idx_num), meta in VULPIX_KNOWN_SET_INDEX.items():
+        if idx_num == clean_num_norm and (idx_set in clean_set_norm or clean_set_norm in idx_set):
+            img_url = meta["image_url"]
+            if year == 2000 and meta.get("release_year") != 2000:
+                year = meta["release_year"]
+            break
+
+    # Pricing
+    def parse_float(v, default=0.0):
+        if pd.isna(v):
+            return default
+        s = re.sub(r"[^\d.]", "", str(v))
+        try:
+            return float(s)
+        except ValueError:
+            return default
+
+    raw_p = parse_float(row.get("Avg Raw Price") or row.get("Raw Price") or row.get("est_raw_price"), 2.0 if not is_1st else 25.0)
+    g10_p = parse_float(row.get("PSA 10 Value") or row.get("Grade 10 Price") or row.get("est_grade10_price"), 45.0 if not is_1st else 250.0)
+
+    # Owned booleans in sheet
+    owned_raw = bool(row.get("Raw") is True or str(row.get("Raw")).lower() in ["true", "yes", "1", "owned"])
+    owned_psa10 = bool(row.get("Gem Mint 10") is True or str(row.get("Gem Mint 10")).lower() in ["true", "yes", "1"])
+    owned_pristine10 = bool(row.get("Pristine 10") is True or str(row.get("Pristine 10")).lower() in ["true", "yes", "1"])
+
+    return {
+        "card_name": card_name,
+        "set_name": set_name,
+        "card_number": card_num,
+        "edition": edition,
+        "language": lang,
+        "release_year": year,
+        "rarity": "Common",
+        "is_1st_edition": 1 if is_1st else 0,
+        "is_error": 1 if error_notes else 0,
+        "error_description": error_notes,
+        "image_url": img_url,
+        "est_raw_price": raw_p,
+        "est_grade10_price": g10_p,
+        "pop_grade10": pop_grade10,
+        "notes": f"Variant: {variant}" if variant else "",
+        "owned_raw": owned_raw,
+        "owned_psa10": owned_psa10,
+        "owned_pristine10": owned_pristine10,
+    }
+
+
+def parse_and_preview_catalog(df_input: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Generates a structured pre-import verification preview DataFrame and summary diagnostics."""
+    if df_input.empty:
+        return pd.DataFrame(), {"total": 0, "first_ed": 0, "errors": 0}
+
+    parsed_rows = [parse_card_row_from_sheet(r) for _, r in df_input.iterrows()]
+    df_preview = pd.DataFrame(parsed_rows)
+
+    stats = {
+        "total": len(df_preview),
+        "first_ed": int(df_preview["is_1st_edition"].sum()),
+        "errors": int(df_preview["is_error"].sum()),
+        "languages": df_preview["language"].nunique(),
+        "sets": df_preview["set_name"].nunique(),
+    }
+    return df_preview, stats
+
+
+def reset_and_clean_sync_master_catalog(df_input: pd.DataFrame) -> Tuple[int, str]:
+    """Wipes old malformed master catalog entries and cleanly populates all cards from DataFrame."""
+    ensure_tables_exist()
+    if df_input.empty:
+        return 0, "Input spreadsheet is empty."
+
+    parsed_rows = [parse_card_row_from_sheet(r) for _, r in df_input.iterrows()]
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM master_set_catalog;")
+
+    count = bulk_upsert_master_catalog(parsed_rows)
+
+    # Sync owned cards into collection
+    owned_added = 0
+    for p in parsed_rows:
+        if p.get("owned_raw"):
+            add_card_to_collection({
+                "card_name": p["card_name"],
+                "set_name": p["set_name"],
+                "card_number": p["card_number"],
+                "grading_company": "RAW",
+                "grade": 0.0,
+                "grade_label": "Raw Single",
+                "purchase_price": p["est_raw_price"],
+                "edition": p["edition"],
+                "language": p["language"],
+                "is_error": p["is_error"],
+                "error_type": p["error_description"],
+                "is_raw": 1,
+                "image_url": p["image_url"],
+            })
+            owned_added += 1
+        if p.get("owned_psa10"):
+            add_card_to_collection({
+                "card_name": p["card_name"],
+                "set_name": p["set_name"],
+                "card_number": p["card_number"],
+                "grading_company": "PSA",
+                "grade": 10.0,
+                "grade_label": "Gem Mint 10",
+                "purchase_price": p["est_grade10_price"],
+                "edition": p["edition"],
+                "language": p["language"],
+                "is_error": p["is_error"],
+                "error_type": p["error_description"],
+                "is_raw": 0,
+                "image_url": p["image_url"],
+            })
+            owned_added += 1
+        if p.get("owned_pristine10"):
+            add_card_to_collection({
+                "card_name": p["card_name"],
+                "set_name": p["set_name"],
+                "card_number": p["card_number"],
+                "grading_company": "CGC",
+                "grade": 10.0,
+                "grade_label": "Pristine 10",
+                "purchase_price": p["est_grade10_price"] * 1.3,
+                "edition": p["edition"],
+                "language": p["language"],
+                "is_error": p["is_error"],
+                "error_type": p["error_description"],
+                "is_raw": 0,
+                "image_url": p["image_url"],
+            })
+            owned_added += 1
+
+    msg = f"Cleaned & Synced {count} cards into Master Set Catalog! ({stats_summary(parsed_rows)})"
+    if owned_added > 0:
+        msg += f" Added {owned_added} owned cards into your Vault."
+    return count, msg
+
+
+def stats_summary(parsed_rows: List[Dict[str, Any]]) -> str:
+    total = len(parsed_rows)
+    f_ed = sum(1 for p in parsed_rows if p.get("is_1st_edition"))
+    errs = sum(1 for p in parsed_rows if p.get("is_error"))
+    return f"{total} Total • {f_ed} 1st Edition • {errs} Error Cards"
+
+
+def sync_master_catalog_from_df(
+    df_input: pd.DataFrame, custom_col_map: Optional[Dict[str, str]] = None
+) -> Tuple[int, str, List[str]]:
+    """Syncs dataframe cards into database with intelligent variant & error resolution."""
+    count, msg = reset_and_clean_sync_master_catalog(df_input)
+    return count, msg, []
+
+
+def sync_from_google_sheets_url(sheet_url: str) -> Tuple[int, str, List[str]]:
+    """Downloads public Google Sheets CSV export and cleanly syncs into database."""
+    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", sheet_url)
+    if not match:
+        return 0, "Invalid Google Sheets URL format. Please provide a standard Google Sheets link.", []
+
+    doc_id = match.group(1)
+    gid_match = re.search(r"[#&?]gid=([0-9]+)", sheet_url)
+    gid = gid_match.group(1) if gid_match else "0"
+
+    export_url = f"https://docs.google.com/spreadsheets/d/{doc_id}/export?format=csv&gid={gid}"
+
+    try:
+        req = urllib.request.Request(export_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as response:
+            csv_content = response.read().decode("utf-8")
+        df = pd.read_csv(io.StringIO(csv_content))
+        return sync_master_catalog_from_df(df)
+    except urllib.error.HTTPError as e:
+        if e.code in [401, 403]:
+            return 0, "Google Sheets Permission Error (401/403): Sheet is Restricted. Please click 'Share' in Google Sheets and select 'Anyone with the link can view'.", []
+        return 0, f"HTTP Error fetching Google Sheet: {e}", []
+    except Exception as e:
+        return 0, f"Error processing Google Sheet: {e}", []
 
 
 # =============================================================
@@ -517,23 +793,9 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]]) -> int:
             s_name = str(card.get("set_name", "Unknown Set")).strip()
             c_num = str(card.get("card_number", "")).strip()
 
-            # Automatic metadata resolution for variant names & images
-            resolved = resolve_card_metadata(s_name, c_num, c_name)
-            if c_name.lower() in ["vulpix", "", "none", "nan", "null"] and resolved["card_name"] != "Vulpix":
-                c_name = resolved["card_name"]
-
             img_url = str(card.get("image_url") or "").strip()
-            if (not img_url or img_url == "https://images.pokemontcg.io/base1/68_hires.png" or "gym2/73" in img_url) and resolved.get("image_url"):
-                img_url = resolved["image_url"]
-
             year_val = int(card.get("release_year") or 2000)
-            if year_val == 2000 and resolved.get("release_year") != 2000:
-                year_val = resolved["release_year"]
-
             rarity_val = str(card.get("rarity", "Common")).strip()
-            if rarity_val == "Common" and resolved.get("rarity") != "Common":
-                rarity_val = resolved["rarity"]
-
             pc_url = str(card.get("pricecharting_url") or "").strip()
             if not pc_url:
                 pc_url = get_pricecharting_search_url(c_name, s_name, c_num)
@@ -727,293 +989,33 @@ def get_master_set_metrics() -> Dict[str, Any]:
     }
 
 
-# =============================================================
-# CSV & Google Sheets Import / Sync Engine
-# =============================================================
-
-def sync_master_catalog_from_df(
-    df_input: pd.DataFrame, custom_col_map: Optional[Dict[str, str]] = None
-) -> Tuple[int, str, List[str]]:
-    """
-    Parses any CSV or Google Sheets dataframe with dynamic or manual column mappings.
-    Auto-enriches missing/generic card names (e.g. Blaine's Vulpix) and fetches high-res images.
-    """
-    ensure_tables_exist()
-    if df_input.empty:
-        return 0, "Uploaded spreadsheet is empty.", []
-
-    col_map = {}
-    if custom_col_map:
-        col_map = {k: v for k, v in custom_col_map.items() if v and v != "None"}
-    else:
-        for col in df_input.columns:
-            c = str(col).strip().lower().replace("_", " ").replace("-", " ")
-            if any(k in c for k in ["card name", "pokemon", "name"]) and "set" not in c:
-                col_map["card_name"] = col
-            elif any(k in c for k in ["set name", "set", "expansion", "series"]):
-                col_map["set_name"] = col
-            elif any(k in c for k in ["card number", "number", "card #", "no", "#"]):
-                col_map["card_number"] = col
-            elif any(k in c for k in ["release year", "year"]):
-                col_map["release_year"] = col
-            elif any(k in c for k in ["language", "lang"]):
-                col_map["language"] = col
-            elif any(k in c for k in ["edition", "variant", "ed", "type"]):
-                col_map["edition"] = col
-            elif any(k in c for k in ["rarity"]):
-                col_map["rarity"] = col
-            elif any(k in c for k in ["is error", "error"]):
-                col_map["is_error"] = col
-            elif any(k in c for k in ["raw price", "est raw", "raw", "market price", "price"]):
-                col_map["est_raw_price"] = col
-            elif any(k in c for k in ["grade 10", "psa 10", "10 price", "est 10", "slab price"]):
-                col_map["est_grade10_price"] = col
-            elif any(k in c for k in ["pop", "population"]):
-                col_map["pop_grade10"] = col
-            elif any(k in c for k in ["pricecharting", "charting"]):
-                col_map["pricecharting_grade10"] = col
-            elif any(k in c for k in ["image", "url", "picture"]):
-                col_map["image_url"] = col
-            elif any(k in c for k in ["notes", "description", "details", "comments"]):
-                col_map["notes"] = col
-            elif any(k in c for k in ["owned", "have", "in collection", "collected", "status", "got"]):
-                col_map["owned_status"] = col
-
-    cols = list(df_input.columns)
-    if "card_name" not in col_map and len(cols) >= 1:
-        col_map["card_name"] = cols[0]
-    if "set_name" not in col_map and len(cols) >= 2:
-        col_map["set_name"] = cols[1]
-
-    cards_to_upsert = []
-    owned_to_add = []
-    diagnostics = []
-
-    def parse_float(v, default=0.0):
-        if pd.isna(v):
-            return default
-        s = re.sub(r"[^\d.]", "", str(v))
-        try:
-            return float(s)
-        except ValueError:
-            return default
-
-    def parse_int(v, default=0):
-        if pd.isna(v):
-            return default
-        s = re.sub(r"[^\d]", "", str(v))
-        try:
-            return int(s)
-        except ValueError:
-            return default
-
-    for idx, row in df_input.iterrows():
-        raw_name = str(row.get(col_map.get("card_name"), "Vulpix")).strip()
-        set_val = str(row.get(col_map.get("set_name"), "Unknown Set")).strip()
-        card_num_val = str(row.get(col_map.get("card_number"), "")).strip()
-
-        if (not raw_name or raw_name.lower() in ["nan", "null", "none", ""]) and not set_val:
-            diagnostics.append(f"Row {idx+1}: Skipped because Card Name & Set were blank.")
-            continue
-
-        # Automated Metadata Resolution & Verification
-        resolved = resolve_card_metadata(set_val, card_num_val, raw_name)
-        c_name = resolved["card_name"] if (raw_name.lower() in ["vulpix", "", "none", "nan", "null"] and resolved["card_name"] != "Vulpix") else (raw_name or "Vulpix")
-
-        raw_p = parse_float(row.get(col_map.get("est_raw_price")), 2.0)
-        g10_p = parse_float(row.get(col_map.get("est_grade10_price")), 45.0)
-
-        err_val = row.get(col_map.get("is_error"), 0)
-        is_err = 1 if str(err_val).lower() in ["1", "true", "yes", "error"] else 0
-
-        year_val = row.get(col_map.get("release_year"), resolved.get("release_year", 2000))
-        try:
-            year_int = int(re.sub(r"[^\d]", "", str(year_val))[:4]) if str(year_val) else resolved.get("release_year", 2000)
-        except ValueError:
-            year_int = resolved.get("release_year", 2000)
-
-        lang_val = str(row.get(col_map.get("language"), "English")).strip()
-        ed_val = str(row.get(col_map.get("edition"), "Unlimited")).strip()
-        rarity_val = str(row.get(col_map.get("rarity"), resolved.get("rarity", "Common"))).strip()
-
-        img_val = str(row.get(col_map.get("image_url"), "")).strip()
-        if not img_val or img_val == "https://images.pokemontcg.io/base1/68_hires.png" or "gym2/73" in img_val:
-            img_val = resolved.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png")
-
-        notes_val = str(row.get(col_map.get("notes"), "")).strip()
-        pop_10_val = parse_int(row.get(col_map.get("pop_grade10")), 0)
-
-        card_dict = {
-            "card_name": c_name,
-            "set_name": set_val,
-            "card_number": card_num_val,
-            "release_year": year_int,
-            "language": lang_val,
-            "edition": ed_val,
-            "rarity": rarity_val,
-            "is_error": is_err,
-            "error_description": notes_val if is_err else "",
-            "est_raw_price": raw_p,
-            "est_grade10_price": g10_p,
-            "pop_grade10": pop_10_val,
-            "pricecharting_url": get_pricecharting_search_url(c_name, set_val, card_num_val),
-            "pricecharting_raw": raw_p,
-            "pricecharting_grade10": g10_p,
-            "image_url": img_val or "https://images.pokemontcg.io/base1/68_hires.png",
-            "notes": notes_val,
-        }
-        cards_to_upsert.append(card_dict)
-
-        owned_flag = str(row.get(col_map.get("owned_status"), "")).strip().lower()
-        if owned_flag in ["yes", "true", "1", "owned", "x", "have", "checked"]:
-            owned_to_add.append({
-                "card_name": c_name,
-                "set_name": set_val,
-                "card_number": card_num_val,
-                "grading_company": "RAW",
-                "grade": 0.0,
-                "grade_label": "Raw Single",
-                "cert_number": "",
-                "purchase_price": raw_p or 5.0,
-                "purchase_date": datetime.today().strftime("%Y-%m-%d"),
-                "edition": ed_val,
-                "language": lang_val,
-                "is_error": is_err,
-                "error_type": notes_val if is_err else None,
-                "is_raw": 1,
-                "pop_grade10": pop_10_val,
-                "image_url": img_val,
-                "notes": notes_val,
-            })
-
-    upsert_count = bulk_upsert_master_catalog(cards_to_upsert)
-
-    owned_added = 0
-    if owned_to_add:
-        for oc in owned_to_add:
-            add_card_to_collection(oc)
-            owned_added += 1
-
-    msg = f"Successfully synced and verified {upsert_count} cards into Master Set Catalog!"
-    if owned_added > 0:
-        msg += f" (Also imported {owned_added} cards marked as Owned into your Vault)."
-    return upsert_count, msg, diagnostics
-
-
-def sync_from_google_sheets_url(sheet_url: str) -> Tuple[int, str, List[str]]:
-    """Downloads public Google Sheets CSV export and syncs into database."""
-    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", sheet_url)
-    if not match:
-        return 0, "Invalid Google Sheets URL format. Please provide a standard Google Sheets link.", []
-
-    doc_id = match.group(1)
-    gid_match = re.search(r"[#&?]gid=([0-9]+)", sheet_url)
-    gid = gid_match.group(1) if gid_match else "0"
-
-    export_url = f"https://docs.google.com/spreadsheets/d/{doc_id}/export?format=csv&gid={gid}"
-
-    try:
-        req = urllib.request.Request(export_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as response:
-            csv_content = response.read().decode("utf-8")
-        df = pd.read_csv(io.StringIO(csv_content))
-        return sync_master_catalog_from_df(df)
-    except urllib.error.HTTPError as e:
-        if e.code in [401, 403]:
-            return 0, "Google Sheets Permission Error (401/403): Sheet is Restricted. Please click 'Share' in Google Sheets and select 'Anyone with the link can view'.", []
-        return 0, f"HTTP Error fetching Google Sheet: {e}", []
-    except Exception as e:
-        return 0, f"Error processing Google Sheet: {e}", []
-
-
 def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
-    """Imports user's owned cards from a CSV directly into my_collection with metadata resolution."""
+    """Imports user's owned cards from a CSV directly into my_collection."""
     ensure_tables_exist()
     if df_input.empty:
         return 0, "Uploaded CSV is empty."
 
-    col_map = {}
-    for col in df_input.columns:
-        c = str(col).strip().lower().replace("_", " ").replace("-", " ")
-        if any(k in c for k in ["card name", "pokemon", "name"]):
-            col_map["card_name"] = col
-        elif any(k in c for k in ["set name", "set"]):
-            col_map["set_name"] = col
-        elif any(k in c for k in ["number", "#"]):
-            col_map["card_number"] = col
-        elif any(k in c for k in ["company", "grader", "slab"]):
-            col_map["grading_company"] = col
-        elif any(k in c for k in ["grade"]):
-            col_map["grade"] = col
-        elif any(k in c for k in ["tier", "label", "grade label"]):
-            col_map["grade_label"] = col
-        elif any(k in c for k in ["price", "cost"]):
-            col_map["purchase_price"] = col
-        elif any(k in c for k in ["cert"]):
-            col_map["cert_number"] = col
-        elif any(k in c for k in ["date"]):
-            col_map["purchase_date"] = col
-        elif any(k in c for k in ["edition", "ed"]):
-            col_map["edition"] = col
-        elif any(k in c for k in ["lang"]):
-            col_map["language"] = col
-        elif any(k in c for k in ["pop"]):
-            col_map["pop_grade10"] = col
-        elif any(k in c for k in ["image"]):
-            col_map["image_url"] = col
-        elif any(k in c for k in ["notes"]):
-            col_map["notes"] = col
-
     count = 0
     for _, row in df_input.iterrows():
-        raw_name = str(row.get(col_map.get("card_name"), "Vulpix")).strip()
-        set_val = str(row.get(col_map.get("set_name"), "Unknown Set")).strip()
-        card_num_val = str(row.get(col_map.get("card_number"), "")).strip()
-
-        if not raw_name and not set_val:
-            continue
-
-        resolved = resolve_card_metadata(set_val, card_num_val, raw_name)
-        c_name = resolved["card_name"] if (raw_name.lower() in ["vulpix", "", "none", "nan", "null"] and resolved["card_name"] != "Vulpix") else (raw_name or "Vulpix")
-
-        co = str(row.get(col_map.get("grading_company"), "RAW")).strip().upper()
-        is_raw = 1 if co in ["RAW", "UNGRADED", ""] else 0
-
-        def parse_num(v, default=0.0):
-            if pd.isna(v):
-                return default
-            s = re.sub(r"[^\d.]", "", str(v))
-            try:
-                return float(s)
-            except ValueError:
-                return default
-
-        grade_num = parse_num(row.get(col_map.get("grade")), 0.0) if not is_raw else 0.0
-        price_num = parse_num(row.get(col_map.get("purchase_price")), 10.0)
-        pop_num = int(parse_num(row.get(col_map.get("pop_grade10")), 0))
-
-        img_val = str(row.get(col_map.get("image_url"), "")).strip()
-        if not img_val or img_val == "https://images.pokemontcg.io/base1/68_hires.png" or "gym2/73" in img_val:
-            img_val = resolved.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png")
-
+        p = parse_card_row_from_sheet(row)
         card_data = {
-            "card_name": c_name,
-            "set_name": set_val,
-            "card_number": card_num_val,
-            "grading_company": co if not is_raw else "RAW",
-            "grade": grade_num,
-            "grade_label": str(row.get(col_map.get("grade_label"), "Gem Mint" if not is_raw else "Raw Single")).strip(),
-            "cert_number": str(row.get(col_map.get("cert_number"), "")).strip(),
-            "purchase_price": price_num,
-            "purchase_date": str(row.get(col_map.get("purchase_date"), datetime.today().strftime("%Y-%m-%d"))).strip()[:10],
-            "edition": str(row.get(col_map.get("edition"), "Unlimited")).strip(),
-            "language": str(row.get(col_map.get("language"), "English")).strip(),
-            "is_error": 0,
-            "error_type": None,
-            "is_raw": is_raw,
-            "pop_grade10": pop_num,
-            "image_url": img_val or "https://images.pokemontcg.io/base1/68_hires.png",
-            "notes": str(row.get(col_map.get("notes"), "")).strip(),
+            "card_name": p["card_name"],
+            "set_name": p["set_name"],
+            "card_number": p["card_number"],
+            "grading_company": "RAW",
+            "grade": 0.0,
+            "grade_label": "Raw Single",
+            "cert_number": "",
+            "purchase_price": p["est_raw_price"],
+            "purchase_date": datetime.today().strftime("%Y-%m-%d"),
+            "edition": p["edition"],
+            "language": p["language"],
+            "is_error": p["is_error"],
+            "error_type": p["error_description"],
+            "is_raw": 1,
+            "pop_grade10": 0,
+            "image_url": p["image_url"],
+            "notes": p["notes"],
         }
         add_card_to_collection(card_data)
         count += 1
@@ -1025,36 +1027,32 @@ def get_csv_template_bytes() -> bytes:
     """Generates a clean starter CSV template bytes."""
     df_template = pd.DataFrame([
         {
-            "Card Name": "Vulpix",
-            "Set Name": "Base Set",
-            "Card Number": "68/102",
-            "Release Year": 1999,
+            "Release Date": 1999,
             "Language": "English",
-            "Edition": "1st Edition",
-            "Rarity": "Common",
-            "Is Error": "No",
-            "Est Raw Price": 8.00,
-            "Est Grade 10 Price": 240.00,
-            "Pop Grade 10": 185,
-            "Owned": "Yes",
-            "Image URL": "https://images.pokemontcg.io/base1/68_hires.png",
-            "Notes": "1st Edition Base Set.",
+            "Set / Source": "Base Set",
+            "Card #": "68/102",
+            "1st Ed?": "Yes",
+            "Variant / Stamp / Code": "Shadowless",
+            "Error / Notes": "",
+            "Raw": "Yes",
+            "Pristine 10": "No",
+            "Gem Mint 10": "No",
+            "PSA 10 Value": 240.00,
+            "Avg Raw Price": 27.68,
         },
         {
-            "Card Name": "Blaine's Vulpix",
-            "Set Name": "Gym Heroes",
-            "Card Number": "65/132",
-            "Release Year": 2000,
+            "Release Date": 2000,
             "Language": "English",
-            "Edition": "1st Edition",
-            "Rarity": "Common",
-            "Is Error": "No",
-            "Est Raw Price": 4.50,
-            "Est Grade 10 Price": 85.00,
-            "Pop Grade 10": 95,
-            "Owned": "No",
-            "Image URL": "https://images.pokemontcg.io/gym1/65_hires.png",
-            "Notes": "Gym Heroes Blaine's Vulpix.",
+            "Set / Source": "Gym Heroes",
+            "Card #": "65/132",
+            "1st Ed?": "Yes",
+            "Variant / Stamp / Code": "Blaine's Vulpix",
+            "Error / Notes": "",
+            "Raw": "No",
+            "Pristine 10": "No",
+            "Gem Mint 10": "Yes",
+            "PSA 10 Value": 85.00,
+            "Avg Raw Price": 4.50,
         }
     ])
     output = io.StringIO()
