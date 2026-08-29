@@ -28,6 +28,7 @@ from db_utils import (
     load_deals_df,
     load_market_sales_df,
     load_master_catalog_df,
+    send_gotify_alert,
     sync_from_google_sheets_url,
     sync_master_catalog_from_df,
     update_card_image_override,
@@ -62,37 +63,31 @@ kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
 
 with kpi1:
     st.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Master Set Progress</div>
-            <div class="kpi-value" style="color: #10b981;">{master_metrics['completion_pct']}%</div>
-            <div style="color: #94a3b8; font-size: 0.82rem;">{master_metrics['owned_cards']} / {master_metrics['total_cards']} Unique Cards</div>
-        </div>
-        """,
+        f"""<div class="kpi-card">
+<div class="kpi-label">Master Set Progress</div>
+<div class="kpi-value" style="color: #10b981;">{master_metrics['completion_pct']}%</div>
+<div style="color: #94a3b8; font-size: 0.82rem;">{master_metrics['owned_cards']} / {master_metrics['total_cards']} Unique Cards</div>
+</div>""",
         unsafe_allow_html=True,
     )
 
 with kpi2:
     st.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Cost to Finish Master Set</div>
-            <div class="kpi-value" style="font-size: 1.35rem; color: #ffd591;">${master_metrics['cost_to_complete_raw']:,.2f} <span style="font-size: 0.8rem; color: #94a3b8;">(Raw)</span></div>
-            <div style="color: #f59e0b; font-size: 0.8rem; font-weight: 600;">${master_metrics['cost_to_complete_grade10']:,.2f} in Grade 10</div>
-        </div>
-        """,
+        f"""<div class="kpi-card">
+<div class="kpi-label">Cost to Finish Master Set</div>
+<div class="kpi-value" style="font-size: 1.35rem; color: #ffd591;">${master_metrics['cost_to_complete_raw']:,.2f} <span style="font-size: 0.8rem; color: #94a3b8;">(Raw)</span></div>
+<div style="color: #f59e0b; font-size: 0.8rem; font-weight: 600;">${master_metrics['cost_to_complete_grade10']:,.2f} in Grade 10</div>
+</div>""",
         unsafe_allow_html=True,
     )
 
 with kpi3:
     st.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Vault Portfolio Value</div>
-            <div class="kpi-value">${port_metrics['total_value']:,.2f}</div>
-            <div style="color: #8c8d9a; font-size: 0.82rem;">Cost Basis: ${port_metrics['total_cost']:,.2f}</div>
-        </div>
-        """,
+        f"""<div class="kpi-card">
+<div class="kpi-label">Vault Portfolio Value</div>
+<div class="kpi-value">${port_metrics['total_value']:,.2f}</div>
+<div style="color: #8c8d9a; font-size: 0.82rem;">Cost Basis: ${port_metrics['total_cost']:,.2f}</div>
+</div>""",
         unsafe_allow_html=True,
     )
 
@@ -100,25 +95,21 @@ with kpi4:
     gain_class = "kpi-delta-pos" if port_metrics["net_gain"] >= 0 else "kpi-delta-neg"
     sign = "+" if port_metrics["net_gain"] >= 0 else ""
     st.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Net Gain / ROI</div>
-            <div class="kpi-value">{sign}${port_metrics['net_gain']:,.2f}</div>
-            <div class="{gain_class}">{sign}{port_metrics['roi_percent']:.1f}% Total ROI</div>
-        </div>
-        """,
+        f"""<div class="kpi-card">
+<div class="kpi-label">Net Gain / ROI</div>
+<div class="kpi-value">{sign}${port_metrics['net_gain']:,.2f}</div>
+<div class="{gain_class}">{sign}{port_metrics['roi_percent']:.1f}% Total ROI</div>
+</div>""",
         unsafe_allow_html=True,
     )
 
 with kpi5:
     st.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Active Sniper & Deals</div>
-            <div class="kpi-value" style="color: #ff7a45;">{len(df_sniper)} / {port_metrics['amazing_deals_count'] + port_metrics['great_deals_count']}</div>
-            <div style="color: #ff7a45; font-size: 0.82rem; font-weight: 600;">🎯 {len(df_sniper)} Snipers • 🔥 {port_metrics['amazing_deals_count']} Amazing</div>
-        </div>
-        """,
+        f"""<div class="kpi-card">
+<div class="kpi-label">Active Sniper & Deals</div>
+<div class="kpi-value" style="color: #ff7a45;">{len(df_sniper)} / {port_metrics['amazing_deals_count'] + port_metrics['great_deals_count']}</div>
+<div style="color: #ff7a45; font-size: 0.82rem; font-weight: 600;">🎯 {len(df_sniper)} Snipers • 🔥 {port_metrics['amazing_deals_count']} Amazing</div>
+</div>""",
         unsafe_allow_html=True,
     )
 
@@ -258,53 +249,58 @@ with tab_vault:
                     pc_search_link = get_pricecharting_search_url(row["card_name"], row["set_name"], row["card_number"])
                     psa_cert_link = get_psa_cert_lookup_url(str(row.get("cert_number", "")))
 
-                    st.markdown(
-                        f"""
-                        <div class="slab-box">
-                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-                                <div>
-                                    <div style="font-weight: 800; font-size: 1.05rem; color: #fff;">{row['card_name']}</div>
-                                    <div style="color: #8c8d9a; font-size: 0.82rem;">{row['set_name']} • #{row['card_number']} ({row.get('edition', 'Unlimited')})</div>
-                                </div>
-                                <div style="text-align: right;">
-                                    {badge_html}
-                                    <div style="margin-top: 4px;">{pop_badge_html} {error_badge}</div>
-                                </div>
-                            </div>
-                            <div style="text-align: center; margin: 10px 0;">
-                                <img src="{img_src}" style="max-height: 165px; max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" />
-                            </div>
-                            <div style="background: #111217; padding: 8px 12px; border-radius: 8px; margin-top: 8px; font-size: 0.82rem;">
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-                                    <span style="color: #8c8d9a;">Language:</span>
-                                    <span style="color: #ffffff; font-weight: 600;">{row.get('language', 'English')}</span>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-                                    <span style="color: #8c8d9a;">Cost Basis:</span>
-                                    <span style="color: #ffffff; font-weight: 600;">${row['purchase_price']:,.2f}</span>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-                                    <span style="color: #8c8d9a;">Market Est:</span>
-                                    <span style="color: #ffd591; font-weight: 700;">${row['current_market_value']:,.2f}</span>
-                                </div>
-                                <div style="display: flex; justify-content: space-between;">
-                                    <span style="color: #8c8d9a;">Gain / ROI:</span>
-                                    <span style="color: {gain_color}; font-weight: 700;">{gain_sign}${gain:,.2f} ({gain_sign}{roi:.1f}%)</span>
-                                </div>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; gap: 4px;">
-                                <a href="{ebay_search_link}" target="_blank" class="btn-ebay">
-                                    🔍 Live eBay →
-                                </a>
-                                <a href="{pc_search_link}" target="_blank" class="btn-pc">
-                                    📊 PriceCharting
-                                </a>
-                                {f'<a href="{psa_cert_link}" target="_blank" style="color: #94a3b8; font-size: 0.72rem; text-decoration: underline;">Cert #{row["cert_number"]}</a>' if row.get("cert_number") else '<span style="font-size: 0.72rem; color: #666;">Raw</span>'}
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+                    # Format Cert or Slab indicator (DO NOT display 'Raw' for graded slabs)
+                    if row.get("cert_number"):
+                        cert_label_html = f'<a href="{psa_cert_link}" target="_blank" style="color: #94a3b8; font-size: 0.72rem; text-decoration: underline;">Cert #{row["cert_number"]}</a>'
+                    elif row.get("is_raw") == 1 or str(row.get("grading_company", "")).upper() == "RAW":
+                        cert_label_html = '<span style="font-size: 0.72rem; color: #666;">Raw Single</span>'
+                    else:
+                        cert_label_html = '<span style="font-size: 0.72rem; color: #8c8d9a;">Graded Slab</span>'
+
+                    card_box_html = f"""<div class="slab-box">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+<div>
+<div style="font-weight: 800; font-size: 1.05rem; color: #fff;">{row['card_name']}</div>
+<div style="color: #8c8d9a; font-size: 0.82rem;">{row['set_name']} • #{row['card_number']} ({row.get('edition', 'Unlimited')})</div>
+</div>
+<div style="text-align: right;">
+{badge_html}
+<div style="margin-top: 4px;">{pop_badge_html} {error_badge}</div>
+</div>
+</div>
+<div style="text-align: center; margin: 10px 0;">
+<img src="{img_src}" style="max-height: 165px; max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" />
+</div>
+<div style="background: #111217; padding: 8px 12px; border-radius: 8px; margin-top: 8px; font-size: 0.82rem;">
+<div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+<span style="color: #8c8d9a;">Language:</span>
+<span style="color: #ffffff; font-weight: 600;">{row.get('language', 'English')}</span>
+</div>
+<div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+<span style="color: #8c8d9a;">Cost Basis:</span>
+<span style="color: #ffffff; font-weight: 600;">${row['purchase_price']:,.2f}</span>
+</div>
+<div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+<span style="color: #8c8d9a;">Market Est:</span>
+<span style="color: #ffd591; font-weight: 700;">${row['current_market_value']:,.2f}</span>
+</div>
+<div style="display: flex; justify-content: space-between;">
+<span style="color: #8c8d9a;">Gain / ROI:</span>
+<span style="color: {gain_color}; font-weight: 700;">{gain_sign}${gain:,.2f} ({gain_sign}{roi:.1f}%)</span>
+</div>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; gap: 4px;">
+<a href="{ebay_search_link}" target="_blank" class="btn-ebay">
+🔍 Live eBay →
+</a>
+<a href="{pc_search_link}" target="_blank" class="btn-pc">
+📊 PriceCharting
+</a>
+{cert_label_html}
+</div>
+</div>"""
+
+                    st.markdown(card_box_html, unsafe_allow_html=True)
 
                     btn_c1, btn_c2 = st.columns(2)
                     with btn_c1:
@@ -383,23 +379,21 @@ with tab_master:
     # Progress Header
     pct = master_metrics["completion_pct"]
     st.markdown(
-        f"""
-        <div class="master-box">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="font-weight: 800; font-size: 1.2rem; color: #ffffff;">Vulpix Master Set Completion</div>
-                <div style="font-weight: 800; font-size: 1.4rem; color: #10b981;">{pct}%</div>
-            </div>
-            <div class="progress-bar-bg">
-                <div class="progress-bar-fill" style="width: {pct}%;"></div>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #8c8d9a;">
-                <span>Owned: <strong style="color: #fff;">{master_metrics['owned_cards']}</strong> / {master_metrics['total_cards']} Unique</span>
-                <span>Missing: <strong style="color: #f87171;">{master_metrics['missing_cards']}</strong> cards</span>
-                <span>Est. Raw Finish Cost: <strong style="color: #ffd591;">${master_metrics['cost_to_complete_raw']:,.2f}</strong></span>
-                <span>Est. Grade 10 Finish Cost: <strong style="color: #f59e0b;">${master_metrics['cost_to_complete_grade10']:,.2f}</strong></span>
-            </div>
-        </div>
-        """,
+        f"""<div class="master-box">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<div style="font-weight: 800; font-size: 1.2rem; color: #ffffff;">Vulpix Master Set Completion</div>
+<div style="font-weight: 800; font-size: 1.4rem; color: #10b981;">{pct}%</div>
+</div>
+<div class="progress-bar-bg">
+<div class="progress-bar-fill" style="width: {pct}%;"></div>
+</div>
+<div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #8c8d9a;">
+<span>Owned: <strong style="color: #fff;">{master_metrics['owned_cards']}</strong> / {master_metrics['total_cards']} Unique</span>
+<span>Missing: <strong style="color: #f87171;">{master_metrics['missing_cards']}</strong> cards</span>
+<span>Est. Raw Finish Cost: <strong style="color: #ffd591;">${master_metrics['cost_to_complete_raw']:,.2f}</strong></span>
+<span>Est. Grade 10 Finish Cost: <strong style="color: #f59e0b;">${master_metrics['cost_to_complete_grade10']:,.2f}</strong></span>
+</div>
+</div>""",
         unsafe_allow_html=True,
     )
 
@@ -478,46 +472,44 @@ with tab_master:
                 )
                 pc_url = row.get("pricecharting_url") or get_pricecharting_search_url(row["card_name"], row["set_name"], row["card_number"])
 
-                st.markdown(
-                    f"""
-                    <div class="slab-box" style="padding: 12px; margin-bottom: 14px;">
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
-                            <div style="font-size: 0.78rem; font-weight: 700; color: #94a3b8;">{row['release_year']} • {row['language']}</div>
-                            <div>{status_badge} {err_badge}</div>
-                        </div>
-                        <div style="text-align: center; margin: 8px 0;">
-                            <img src="{img_src}" style="max-height: 155px; max-width: 100%; border-radius: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);" />
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
-                            <div style="font-weight: 800; font-size: 0.92rem; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['card_name']}</div>
-                            {pop_badge}
-                        </div>
-                        <div style="color: #8c8d9a; font-size: 0.78rem; margin-bottom: 8px;">{row['set_name']} #{row['card_number']} ({row['edition']})</div>
-                        <div style="background: #111217; padding: 6px 8px; border-radius: 6px; font-size: 0.78rem; margin-bottom: 8px;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
-                                <span style="color: #8c8d9a;">Est Raw:</span>
-                                <span style="color: #ffd591; font-weight: 700;">${row['est_raw_price']:,.2f}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="color: #8c8d9a;">Est PSA 10:</span>
-                                <span style="color: #f59e0b; font-weight: 700;">${row['est_grade10_price']:,.2f}</span>
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 4px; margin-bottom: 4px;">
-                            <a href="{raw_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 3px;">
-                                🔍 Raw
-                            </a>
-                            <a href="{g10_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 3px; background: linear-gradient(135deg, #f59e0b, #d97706);">
-                                💎 PSA 10
-                            </a>
-                            <a href="{pc_url}" target="_blank" class="btn-pc" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 3px;">
-                                📊 Charting
-                            </a>
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                # Render HTML unindented to prevent markdown code block bug
+                master_card_html = f"""<div class="slab-box" style="padding: 12px; margin-bottom: 14px;">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+<div style="font-size: 0.78rem; font-weight: 700; color: #94a3b8;">{row['release_year']} • {row['language']}</div>
+<div>{status_badge} {err_badge}</div>
+</div>
+<div style="text-align: center; margin: 8px 0;">
+<img src="{img_src}" style="max-height: 155px; max-width: 100%; border-radius: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);" />
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+<div style="font-weight: 800; font-size: 0.92rem; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['card_name']}</div>
+{pop_badge}
+</div>
+<div style="color: #8c8d9a; font-size: 0.78rem; margin-bottom: 8px;">{row['set_name']} #{row['card_number']} ({row['edition']})</div>
+<div style="background: #111217; padding: 6px 8px; border-radius: 6px; font-size: 0.78rem; margin-bottom: 8px;">
+<div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+<span style="color: #8c8d9a;">Est Raw:</span>
+<span style="color: #ffd591; font-weight: 700;">${row['est_raw_price']:,.2f}</span>
+</div>
+<div style="display: flex; justify-content: space-between;">
+<span style="color: #8c8d9a;">Est PSA 10:</span>
+<span style="color: #f59e0b; font-weight: 700;">${row['est_grade10_price']:,.2f}</span>
+</div>
+</div>
+<div style="display: flex; gap: 4px; margin-bottom: 4px;">
+<a href="{raw_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 3px;">
+🔍 Raw
+</a>
+<a href="{g10_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 3px; background: linear-gradient(135deg, #f59e0b, #d97706);">
+💎 PSA 10
+</a>
+<a href="{pc_url}" target="_blank" class="btn-pc" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 3px;">
+📊 Charting
+</a>
+</div>
+</div>"""
+
+                st.markdown(master_card_html, unsafe_allow_html=True)
 
                 # Quick Action Buttons
                 act1, act2 = st.columns(2)
@@ -760,39 +752,37 @@ with tab_sniper:
 
             with st.container():
                 st.markdown(
-                    f"""
-                    <div class="sniper-card">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                {badge_sn}
-                                <span style="font-weight: 800; font-size: 1.1rem; color: #fff; margin-left: 8px;">{sn['title']}</span>
-                            </div>
-                            <div>
-                                <span style="color: #8c8d9a; font-size: 0.82rem;">Current Bid: </span>
-                                <span style="font-size: 1.3rem; font-weight: 800; color: #4ade80;">${curr_bid:,.2f}</span>
-                            </div>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; background: #111217; padding: 10px 14px; border-radius: 8px; margin: 10px 0; font-size: 0.85rem;">
-                            <div>
-                                <span style="color: #8c8d9a;">Target Card:</span> <strong style="color: #fff;">{sn['card_name']}</strong>
-                            </div>
-                            <div>
-                                <span style="color: #8c8d9a;">Max Bid Cap:</span> <strong style="color: #ffd591;">${max_bid:,.2f}</strong>
-                            </div>
-                            <div>
-                                <span style="color: #8c8d9a;">Auction Closes:</span> <strong style="color: #f59e0b;">{sn['auction_end_time'] or 'Ongoing'}</strong>
-                            </div>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="color: #94a3b8; font-size: 0.8rem;">{sn['notes'] or ''}</span>
-                            <div style="display: flex; gap: 8px;">
-                                <a href="{sn['listing_url']}" target="_blank" class="btn-ebay" style="background: linear-gradient(135deg, #ef4444, #dc2626);">
-                                    ⚡ Place Bid on eBay →
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                    """,
+                    f"""<div class="sniper-card">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<div>
+{badge_sn}
+<span style="font-weight: 800; font-size: 1.1rem; color: #fff; margin-left: 8px;">{sn['title']}</span>
+</div>
+<div>
+<span style="color: #8c8d9a; font-size: 0.82rem;">Current Bid: </span>
+<span style="font-size: 1.3rem; font-weight: 800; color: #4ade80;">${curr_bid:,.2f}</span>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; background: #111217; padding: 10px 14px; border-radius: 8px; margin: 10px 0; font-size: 0.85rem;">
+<div>
+<span style="color: #8c8d9a;">Target Card:</span> <strong style="color: #fff;">{sn['card_name']}</strong>
+</div>
+<div>
+<span style="color: #8c8d9a;">Max Bid Cap:</span> <strong style="color: #ffd591;">${max_bid:,.2f}</strong>
+</div>
+<div>
+<span style="color: #8c8d9a;">Auction Closes:</span> <strong style="color: #f59e0b;">{sn['auction_end_time'] or 'Ongoing'}</strong>
+</div>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<span style="color: #94a3b8; font-size: 0.8rem;">{sn['notes'] or ''}</span>
+<div style="display: flex; gap: 8px;">
+<a href="{sn['listing_url']}" target="_blank" class="btn-ebay" style="background: linear-gradient(135deg, #ef4444, #dc2626);">
+⚡ Place Bid on eBay →
+</a>
+</div>
+</div>
+</div>""",
                     unsafe_allow_html=True,
                 )
                 if st.button("🗑️ Remove Target", key=f"del_snip_{sn['id']}"):
@@ -938,46 +928,44 @@ with tab_deals:
 
             with st.container():
                 st.markdown(
-                    f"""
-                    <div style="background: #181920; border: 1px solid {border_color}; border-radius: 12px; padding: 16px; margin-bottom: 14px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                {badge_deal} &nbsp; {grading_badge}
-                                <span style="font-weight: 800; font-size: 1.1rem; color: #fff; margin-left: 6px;">{deal['title']}</span>
-                            </div>
-                            <div style="text-align: right;">
-                                <span style="color: #8c8d9a; font-size: 0.82rem;">Listed: </span>
-                                <span style="font-size: 1.25rem; font-weight: 800; color: #4ade80;">${deal['total_price']:,.2f}</span>
-                            </div>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; background: #111217; padding: 10px 14px; border-radius: 8px; margin: 10px 0; font-size: 0.85rem;">
-                            <div>
-                                <div style="color: #8c8d9a; font-size: 0.72rem; text-transform: uppercase;">Fair Market Value</div>
-                                <div style="color: #ffffff; font-weight: 700; font-size: 1.0rem;">${fair_val:,.2f}</div>
-                            </div>
-                            <div>
-                                <div style="color: #8c8d9a; font-size: 0.72rem; text-transform: uppercase;">Discount Below Market</div>
-                                <div style="color: #f87171; font-weight: 800; font-size: 1.0rem;">{discount:+.1f}% OFF</div>
-                            </div>
-                            <div>
-                                <div style="color: #8c8d9a; font-size: 0.72rem; text-transform: uppercase;">Edition / Language</div>
-                                <div style="color: #ffffff; font-weight: 600;">{deal.get('edition', 'Unlimited')} ({deal.get('language', 'English')})</div>
-                            </div>
-                            <div>
-                                <div style="color: #8c8d9a; font-size: 0.72rem; text-transform: uppercase;">Condition Tier</div>
-                                <div style="color: #ffffff; font-weight: 600;">{deal.get('condition_type', 'Graded')} ({deal.get('grade_label', 'Gem Mint')})</div>
-                            </div>
-                        </div>
-                        <div style="color: #d1d5db; font-size: 0.88rem; font-style: italic; margin-bottom: 8px;">
-                            💬 <strong>AI Valuation Rationale:</strong> {rationale}
-                        </div>
-                        <div style="text-align: right;">
-                            <a href="{deal['listing_url']}" target="_blank" style="background: linear-gradient(135deg, #ff7a45, #ff4d4f); color: white; text-decoration: none; padding: 6px 16px; border-radius: 8px; font-weight: 700; font-size: 0.82rem; display: inline-block;">
-                                🛒 View & Buy on eBay →
-                            </a>
-                        </div>
-                    </div>
-                    """,
+                    f"""<div style="background: #181920; border: 1px solid {border_color}; border-radius: 12px; padding: 16px; margin-bottom: 14px;">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<div>
+{badge_deal} &nbsp; {grading_badge}
+<span style="font-weight: 800; font-size: 1.1rem; color: #fff; margin-left: 6px;">{deal['title']}</span>
+</div>
+<div style="text-align: right;">
+<span style="color: #8c8d9a; font-size: 0.82rem;">Listed: </span>
+<span style="font-size: 1.25rem; font-weight: 800; color: #4ade80;">${deal['total_price']:,.2f}</span>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; background: #111217; padding: 10px 14px; border-radius: 8px; margin: 10px 0; font-size: 0.85rem;">
+<div>
+<div style="color: #8c8d9a; font-size: 0.72rem; text-transform: uppercase;">Fair Market Value</div>
+<div style="color: #ffffff; font-weight: 700; font-size: 1.0rem;">${fair_val:,.2f}</div>
+</div>
+<div>
+<div style="color: #8c8d9a; font-size: 0.72rem; text-transform: uppercase;">Discount Below Market</div>
+<div style="color: #f87171; font-weight: 800; font-size: 1.0rem;">{discount:+.1f}% OFF</div>
+</div>
+<div>
+<div style="color: #8c8d9a; font-size: 0.72rem; text-transform: uppercase;">Edition / Language</div>
+<div style="color: #ffffff; font-weight: 600;">{deal.get('edition', 'Unlimited')} ({deal.get('language', 'English')})</div>
+</div>
+<div>
+<div style="color: #8c8d9a; font-size: 0.72rem; text-transform: uppercase;">Condition Tier</div>
+<div style="color: #ffffff; font-weight: 600;">{deal.get('condition_type', 'Graded')} ({deal.get('grade_label', 'Gem Mint')})</div>
+</div>
+</div>
+<div style="color: #d1d5db; font-size: 0.88rem; font-style: italic; margin-bottom: 8px;">
+💬 <strong>AI Valuation Rationale:</strong> {rationale}
+</div>
+<div style="text-align: right;">
+<a href="{deal['listing_url']}" target="_blank" style="background: linear-gradient(135deg, #ff7a45, #ff4d4f); color: white; text-decoration: none; padding: 6px 16px; border-radius: 8px; font-weight: 700; font-size: 0.82rem; display: inline-block;">
+🛒 View & Buy on eBay →
+</a>
+</div>
+</div>""",
                     unsafe_allow_html=True,
                 )
 
@@ -1004,52 +992,36 @@ with tab_settings:
     with col_s2:
         st.markdown("#### 🔔 Gotify Push Notification Settings")
         gotify_url = os.getenv("GOTIFY_URL", "http://10.0.0.48")
-        st.markdown(f"- **Active Gotify URL:** `{gotify_url}`")
-        st.markdown(f"- **Alert Levels:** `Priority 10 (Sniper Urgency), Priority 8 (Amazing Deals), Priority 6 (Great Deals)`")
+        gotify_token = os.getenv("GOTIFY_APP_TOKEN", "")
+        token_status = "✅ Token Configured" if gotify_token and gotify_token != "your_gotify_app_token_here" else "⚠️ Missing GOTIFY_APP_TOKEN in .env"
+
+        st.markdown(f"- **Active Gotify Server:** `{gotify_url}`")
+        st.markdown(f"- **Token Status:** `{token_status}`")
+        st.markdown(f"- **Alert Priority:** `Priority 10 (Sniper), Priority 8 (Amazing Deals), Priority 6 (Great Deals)`")
 
         if st.button("🔔 Send Test Push Alert to Gotify"):
-            import sys
-            sys.path.append(os.path.join(os.path.dirname(__file__), "..", "scraper"))
-            try:
-                from notifier import send_gotify_alert
-                test_listing = {
-                    "listing_id": "test_alert_004",
-                    "title": "Vulpix 1st Edition PSA 10 (TEST GOTIFY PUSH)",
-                    "card_name": "Vulpix",
-                    "grading_company": "PSA",
-                    "grade": 10.0,
-                    "grade_label": "Gem Mint 10",
-                    "condition_type": "Graded",
-                    "edition": "1st Edition",
-                    "language": "English",
-                    "total_price": 99.00,
-                    "price": 99.00,
-                    "listing_url": "https://www.ebay.com",
-                }
-                test_appraisal = {
-                    "deal_rating": "amazing_deal",
-                    "fair_value_estimate": 240.00,
-                    "discount_percentage": 58.7,
-                    "rationale": f"Test push alert connecting to Gotify server at {gotify_url}.",
-                }
-                res = send_gotify_alert(test_listing, test_appraisal)
-                if res:
-                    st.success(f"Test notification successfully dispatched to {gotify_url}!")
-                else:
-                    st.warning(f"Could not reach Gotify at {gotify_url}. Check GOTIFY_APP_TOKEN in .env.")
-            except Exception as e:
-                st.warning(f"Could not dispatch Gotify alert: {e}")
-
-    st.markdown("---")
-    st.markdown("#### ⚡ Trigger Multi-Query eBay Scrape Now")
-    if st.button("⚡ Run Scraper & AI Appraisal Cycle"):
-        with st.spinner("Scraping eBay for Raw, Grade 10, and Error Vulpix cards..."):
-            try:
-                import sys
-                sys.path.append(os.path.join(os.path.dirname(__file__), "..", "scraper"))
-                from cron_scraper import run_scrape_and_appraisal_cycle
-                run_scrape_and_appraisal_cycle()
-                st.success("Scrape cycle completed!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Scraper error: {e}")
+            test_listing = {
+                "listing_id": "test_alert_005",
+                "title": "Vulpix 1st Edition Base Set PSA 10 (TEST GOTIFY ALERT)",
+                "card_name": "Vulpix",
+                "grading_company": "PSA",
+                "grade": 10.0,
+                "grade_label": "Gem Mint 10",
+                "condition_type": "Graded",
+                "edition": "1st Edition",
+                "language": "English",
+                "total_price": 95.00,
+                "price": 95.00,
+                "listing_url": "https://www.ebay.com",
+            }
+            test_appraisal = {
+                "deal_rating": "amazing_deal",
+                "fair_value_estimate": 240.00,
+                "discount_percentage": 60.4,
+                "rationale": f"Test push alert connecting to Gotify server at {gotify_url}.",
+            }
+            res = send_gotify_alert(test_listing, test_appraisal)
+            if res:
+                st.success(f"✅ Test push notification successfully delivered to {gotify_url}!")
+            else:
+                st.error(f"❌ Failed to reach Gotify at {gotify_url}. Make sure GOTIFY_APP_TOKEN is set in your .env file on the server and http://10.0.0.48 is accessible from this container.")

@@ -2,10 +2,11 @@
 Database utility module for Streamlit Dashboard.
 100% Self-contained: manages SQLite WAL mode, Master Set catalog, collection CRUD,
 eBay search query generation, PriceCharting aggregated prices, PSA/CGC Population reports,
-sniper watchlist, Google Sheets sync, and CSV diagnostics.
+Gotify push dispatcher, sniper watchlist, Google Sheets sync, and CSV diagnostics.
 """
 
 import io
+import json
 import os
 import re
 import sqlite3
@@ -250,6 +251,64 @@ def get_psa_cert_lookup_url(cert_number: str) -> str:
     if clean_cert:
         return f"https://www.psacard.com/cert/{clean_cert}"
     return "https://www.psacard.com/pop"
+
+
+# =============================================================
+# Gotify Notification Dispatcher (Self-Contained in Dashboard)
+# =============================================================
+
+def send_gotify_alert(
+    listing: Dict[str, Any],
+    appraisal: Dict[str, Any],
+    gotify_url: Optional[str] = None,
+    gotify_token: Optional[str] = None,
+) -> bool:
+    """Dispatches a push notification directly to Gotify server."""
+    base_url = (gotify_url or os.getenv("GOTIFY_URL", "http://10.0.0.48")).rstrip("/")
+    token = gotify_token or os.getenv("GOTIFY_APP_TOKEN", "")
+
+    if not token or token == "your_gotify_app_token_here":
+        print("[Dashboard Gotify] Warning: GOTIFY_APP_TOKEN not configured in .env.")
+        return False
+
+    rating = appraisal.get("deal_rating", "good_deal")
+    priority = 8 if rating == "amazing_deal" else 6
+    emoji = "🔥" if rating == "amazing_deal" else "⭐"
+    title = f"{emoji} {rating.replace('_', ' ').title()}: {listing.get('card_name', 'Vulpix')}"
+
+    message_body = (
+        f"**Card:** {listing.get('title')}\n"
+        f"**Price:** ${listing.get('total_price', 0.0):.2f}\n"
+        f"**Est. Fair Value:** ${appraisal.get('fair_value_estimate', 0.0):.2f} ({appraisal.get('discount_percentage', 0.0):.1f}% OFF)\n"
+        f"**Rationale:** {appraisal.get('rationale', '')}\n\n"
+        f"[View Listing on eBay]({listing.get('listing_url', '')})"
+    )
+
+    payload_data = json.dumps({
+        "title": title,
+        "message": message_body,
+        "priority": priority,
+        "extras": {
+            "client::notification": {"click": {"url": listing.get("listing_url", "")}},
+            "client::display": {"contentType": "text/markdown"}
+        }
+    }).encode("utf-8")
+
+    try:
+        req = urllib.request.Request(
+            f"{base_url}/message",
+            data=payload_data,
+            headers={
+                "X-Gotify-Key": token,
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0"
+            }
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status in [200, 201]
+    except Exception as e:
+        print(f"[Dashboard Gotify] Connection Error to {base_url}: {e}")
+        return False
 
 
 # =============================================================
