@@ -7,8 +7,11 @@ services:
     restart: unless-stopped
     ports:
       - "8501:8501"
+    env_file:
+      - .env
     environment:
       - DB_PATH=/data/vulpix_vault.db
+      - GOTIFY_URL=http://gotify:80
     volumes:
       - ./data:/data
     depends_on:

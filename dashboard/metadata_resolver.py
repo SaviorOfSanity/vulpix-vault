@@ -1,7 +1,8 @@
 """
 Metadata enrichment and card verification engine for Pokémon TCG Vulpix cards.
 Fetches exact card names, official high-res images, set years, and rarities from
-Pokemon.com TCG API, Pokecardex, pkmn.gg, and a curated 200+ Vulpix Master Set Index.
+Pokemon.com TCG API, Pokecardex, and a curated 200+ Vulpix Master Set Index.
+Ensures 100% Vulpix verification - NEVER matches non-Vulpix cards.
 """
 
 import json
@@ -48,11 +49,12 @@ VULPIX_KNOWN_SET_INDEX = {
         "rarity": "Common",
         "image_url": "https://images.pokemontcg.io/gym2/66_hires.png",
     },
+    # Common cross-set confusion helper: Gym Challenge #73 -> Brock's Vulpix (Gym Heroes #73)
     ("gym challenge", "73"): {
         "card_name": "Brock's Vulpix",
         "release_year": 2000,
         "rarity": "Common",
-        "image_url": "https://images.pokemontcg.io/gym2/73_hires.png",
+        "image_url": "https://images.pokemontcg.io/gym1/73_hires.png",
     },
     ("neo destiny", "70"): {
         "card_name": "Light Vulpix",
@@ -144,6 +146,12 @@ VULPIX_KNOWN_SET_INDEX = {
         "rarity": "Common",
         "image_url": "https://images.pokemontcg.io/bw6/15_hires.png",
     },
+    ("dragons exalted", "18"): {
+        "card_name": "Vulpix",
+        "release_year": 2012,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/bw6/18_hires.png",
+    },
     ("primal clash", "20"): {
         "card_name": "Vulpix",
         "release_year": 2015,
@@ -200,6 +208,12 @@ VULPIX_KNOWN_SET_INDEX = {
         "rarity": "Common",
         "image_url": "https://images.pokemontcg.io/sm12/38_hires.png",
     },
+    ("hidden fates", "sv8"): {
+        "card_name": "Alolan Vulpix (Shiny)",
+        "release_year": 2019,
+        "rarity": "Shiny Holo",
+        "image_url": "https://images.pokemontcg.io/sma/SV8_hires.png",
+    },
     ("hidden fates", "sv13"): {
         "card_name": "Alolan Vulpix (Shiny)",
         "release_year": 2019,
@@ -208,6 +222,12 @@ VULPIX_KNOWN_SET_INDEX = {
     },
 
     # --- Sword & Shield & Modern ---
+    ("champions path", "6"): {
+        "card_name": "Vulpix",
+        "release_year": 2020,
+        "rarity": "Common",
+        "image_url": "https://images.pokemontcg.io/swsh35/6_hires.png",
+    },
     ("rebel clash", "24"): {
         "card_name": "Vulpix",
         "release_year": 2020,
@@ -293,7 +313,6 @@ def extract_base_number(card_num_str: str) -> str:
         s = s.split("/")[0].strip()
     match = re.search(r"([A-Za-z]*[0-9]+)", s)
     if match:
-        # Strip leading zeros if purely digits
         val = match.group(1)
         if val.isdigit():
             return str(int(val))
@@ -301,43 +320,47 @@ def extract_base_number(card_num_str: str) -> str:
     return s.lower()
 
 
-def query_pokemontcg_api(set_name: str, card_number: str) -> Optional[Dict[str, Any]]:
+def query_pokemontcg_api(set_name: str, card_number: str, card_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
-    Queries the official Pokémon TCG API (pokemontcg.io / Pokemon TCG open dataset)
-    to find card name, high-res image, release date, and rarity.
+    Queries the official Pokémon TCG API (pokemontcg.io)
+    STRICT VALIDATION: Only accepts cards whose name contains 'Vulpix'.
     """
     clean_num = extract_base_number(card_number)
     clean_set = re.sub(r"\([0-9]{4}\)", "", set_name).strip()
 
     queries = [
-        f'name:"*Vulpix*" number:"{clean_num}"',
-        f'set.name:"{clean_set}" number:"{clean_num}"',
-        f'number:"{clean_num}" (name:"*Vulpix*" OR name:"*Blaine*" OR name:"*Brock*")',
+        f'name:Vulpix number:{clean_num}',
+        f'name:Vulpix set.name:"{clean_set}"',
+        f'number:{clean_num} set.name:"{clean_set}"',
+        f'name:Vulpix',
     ]
 
     for q in queries:
         try:
             encoded_q = urllib.parse.quote(q)
-            api_url = f"https://api.pokemontcg.io/v2/cards?q={encoded_q}&pageSize=1"
+            api_url = f"https://api.pokemontcg.io/v2/cards?q={encoded_q}&pageSize=10"
 
             req = urllib.request.Request(api_url, headers=HEADERS)
             with urllib.request.urlopen(req, timeout=6) as response:
                 if response.status == 200:
                     data = json.loads(response.read().decode("utf-8"))
-                    if data.get("data") and len(data["data"]) > 0:
-                        card = data["data"][0]
-                        img = card.get("images", {}).get("large") or card.get("images", {}).get("small")
-                        rel_date = card.get("set", {}).get("releaseDate", "2000/01/01")
-                        year = int(rel_date.split("/")[0]) if "/" in rel_date else (int(rel_date.split("-")[0]) if "-" in rel_date else 2000)
+                    cards = data.get("data", [])
+                    for card in cards:
+                        cname = card.get("name", "")
+                        # STRICT VERIFICATION: Reject any card that is not a Vulpix (e.g. Magikarp)
+                        if "vulpix" in cname.lower():
+                            img = card.get("images", {}).get("large") or card.get("images", {}).get("small")
+                            rel_date = card.get("set", {}).get("releaseDate", "2000/01/01")
+                            year = int(rel_date.split("/")[0]) if "/" in rel_date else (int(rel_date.split("-")[0]) if "-" in rel_date else 2000)
 
-                        return {
-                            "card_name": card.get("name", "Vulpix"),
-                            "set_name": card.get("set", {}).get("name", set_name),
-                            "card_number": card.get("number", card_number),
-                            "release_year": year,
-                            "rarity": card.get("rarity", "Common"),
-                            "image_url": img or "https://images.pokemontcg.io/base1/68_hires.png",
-                        }
+                            return {
+                                "card_name": cname,
+                                "set_name": card.get("set", {}).get("name", set_name),
+                                "card_number": card.get("number", card_number),
+                                "release_year": year,
+                                "rarity": card.get("rarity", "Common"),
+                                "image_url": img or "https://images.pokemontcg.io/base1/68_hires.png",
+                            }
         except Exception:
             continue
 
@@ -349,7 +372,8 @@ def resolve_card_metadata(
 ) -> Dict[str, Any]:
     """
     Authoritative resolver: checks curated 200+ Vulpix index first,
-    then queries live Pokémon TCG / Pokecardex databases to fill in missing names and images.
+    then queries live Pokémon TCG databases to fill in missing names and images.
+    Guarantees that a non-Vulpix image (like Magikarp) is NEVER returned.
     """
     clean_set_norm = normalize_str(set_name)
     clean_num_norm = extract_base_number(card_number)
@@ -367,8 +391,8 @@ def resolve_card_metadata(
                 "source": "curated_master_index",
             }
 
-    # 2. Live API lookup from Pokémon TCG database
-    api_result = query_pokemontcg_api(set_name, card_number)
+    # 2. Live API lookup from Pokémon TCG database (with strict Vulpix name filtering)
+    api_result = query_pokemontcg_api(set_name, card_number, card_name)
     if api_result:
         return {
             "card_name": api_result["card_name"],
@@ -382,17 +406,24 @@ def resolve_card_metadata(
 
     # 3. Fallback: intelligent name derivation based on set
     inferred_name = card_name or "Vulpix"
+    img_fallback = "https://images.pokemontcg.io/base1/68_hires.png"
+
     if "gym heroes" in clean_set_norm or "gym challenge" in clean_set_norm:
         if clean_num_norm in ["65", "66"]:
             inferred_name = "Blaine's Vulpix"
+            img_fallback = "https://images.pokemontcg.io/gym1/65_hires.png"
         elif clean_num_norm in ["73"]:
             inferred_name = "Brock's Vulpix"
+            img_fallback = "https://images.pokemontcg.io/gym1/73_hires.png"
     elif "destiny" in clean_set_norm and clean_num_norm in ["70"]:
         inferred_name = "Light Vulpix"
+        img_fallback = "https://images.pokemontcg.io/neo4/70_hires.png"
     elif "delta" in clean_set_norm:
         inferred_name = "Vulpix (Delta Species)"
+        img_fallback = "https://images.pokemontcg.io/ex11/91_hires.png"
     elif any(k in clean_set_norm for k in ["silver tempest", "guardians rising", "lost thunder"]):
         inferred_name = "Alolan Vulpix"
+        img_fallback = "https://images.pokemontcg.io/swsh12/33_hires.png"
 
     return {
         "card_name": inferred_name,
@@ -400,6 +431,6 @@ def resolve_card_metadata(
         "card_number": card_number or "",
         "release_year": 2000,
         "rarity": "Common",
-        "image_url": "https://images.pokemontcg.io/base1/68_hires.png",
+        "image_url": img_fallback,
         "source": "heuristic_fallback",
     }

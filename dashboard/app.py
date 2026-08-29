@@ -25,11 +25,13 @@ from db_utils import (
     get_pricecharting_search_url,
     get_psa_cert_lookup_url,
     get_sniper_watchlist_df,
+    get_system_setting,
     load_collection_df,
     load_deals_df,
     load_market_sales_df,
     load_master_catalog_df,
     send_gotify_alert,
+    set_system_setting,
     sync_from_google_sheets_url,
     sync_master_catalog_from_df,
     update_card_image_override,
@@ -1005,37 +1007,55 @@ with tab_settings:
 
     with col_s2:
         st.markdown("#### 🔔 Gotify Push Notification Settings")
-        gotify_url = os.getenv("GOTIFY_URL", "http://10.0.0.48")
-        gotify_token = os.getenv("GOTIFY_APP_TOKEN", "")
-        token_status = "✅ Token Configured" if gotify_token and gotify_token != "your_gotify_app_token_here" else "⚠️ Missing GOTIFY_APP_TOKEN in .env"
+        saved_token = get_system_setting("GOTIFY_APP_TOKEN", os.getenv("GOTIFY_APP_TOKEN", ""))
+        saved_url = get_system_setting("GOTIFY_URL", os.getenv("GOTIFY_URL", "http://gotify:80"))
 
-        st.markdown(f"- **Active Gotify Server:** `{gotify_url}`")
-        st.markdown(f"- **Token Status:** `{token_status}`")
-        st.markdown(f"- **Alert Priority:** `Priority 10 (Sniper), Priority 8 (Amazing Deals), Priority 6 (Great Deals)`")
+        with st.form("gotify_settings_form"):
+            in_token = st.text_input(
+                "Gotify Application Token (App Key)",
+                value=saved_token,
+                placeholder="e.g. AkxDddkn03D.Zcx",
+                type="password",
+                help="Created in Gotify Web UI -> Apps -> Create App",
+            )
+            in_url = st.text_input(
+                "Gotify Server URL",
+                value=saved_url or "http://gotify:80",
+                placeholder="http://gotify:80 or http://10.0.0.48:8070",
+                help="Inside Docker, http://gotify:80 connects directly. On host network, use port 8070.",
+            )
 
-        if st.button("🔔 Send Test Push Alert to Gotify"):
-            test_listing = {
-                "listing_id": "test_alert_005",
-                "title": "Vulpix 1st Edition Base Set PSA 10 (TEST GOTIFY ALERT)",
-                "card_name": "Vulpix",
-                "grading_company": "PSA",
-                "grade": 10.0,
-                "grade_label": "Gem Mint 10",
-                "condition_type": "Graded",
-                "edition": "1st Edition",
-                "language": "English",
-                "total_price": 95.00,
-                "price": 95.00,
-                "listing_url": "https://www.ebay.com",
-            }
-            test_appraisal = {
-                "deal_rating": "amazing_deal",
-                "fair_value_estimate": 240.00,
-                "discount_percentage": 60.4,
-                "rationale": f"Test push alert connecting to Gotify server at {gotify_url}.",
-            }
-            res = send_gotify_alert(test_listing, test_appraisal)
-            if res:
-                st.success(f"✅ Test push notification successfully delivered to {gotify_url}!")
-            else:
-                st.error(f"❌ Failed to reach Gotify at {gotify_url}. Make sure GOTIFY_APP_TOKEN is set in your .env file on the server and http://10.0.0.48 is accessible from this container.")
+            st.caption("💡 *Inside Docker container, `http://gotify:80` connects directly. On host network, use `http://10.0.0.48:8070`.*")
+            save_gotify = st.form_submit_button("💾 Save Credentials & Send Test Alert")
+
+            if save_gotify:
+                if in_token and in_token != "your_gotify_app_token_here":
+                    set_system_setting("GOTIFY_APP_TOKEN", in_token)
+                    set_system_setting("GOTIFY_URL", in_url)
+                    test_listing = {
+                        "listing_id": "test_alert_005",
+                        "title": "Vulpix 1st Edition Base Set PSA 10 (TEST GOTIFY ALERT)",
+                        "card_name": "Vulpix",
+                        "grading_company": "PSA",
+                        "grade": 10.0,
+                        "grade_label": "Gem Mint 10",
+                        "condition_type": "Graded",
+                        "edition": "1st Edition",
+                        "language": "English",
+                        "total_price": 95.00,
+                        "price": 95.00,
+                        "listing_url": "https://www.ebay.com",
+                    }
+                    test_appraisal = {
+                        "deal_rating": "amazing_deal",
+                        "fair_value_estimate": 240.00,
+                        "discount_percentage": 60.4,
+                        "rationale": f"Live test push alert verified from Vulpix Vault Dashboard to Gotify.",
+                    }
+                    res = send_gotify_alert(test_listing, test_appraisal, gotify_url=in_url, gotify_token=in_token)
+                    if res:
+                        st.success(f"✅ Push notification successfully delivered to Gotify ({in_url}) and saved!")
+                    else:
+                        st.error(f"❌ Could not deliver push alert. Attempted: {in_url}, http://gotify:80, and http://10.0.0.48:8070. Please verify your Gotify App Token.")
+                else:
+                    st.error("Please enter a valid Gotify Application Token.")

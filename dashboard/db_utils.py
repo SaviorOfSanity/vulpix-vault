@@ -2,8 +2,8 @@
 Database utility module for Streamlit Dashboard.
 100% Self-contained: manages SQLite WAL mode, Master Set catalog, collection CRUD,
 automatic card name verification and image enrichment via Pokemon.com & Pokecardex,
-eBay search query generation, PriceCharting aggregated prices, PSA/CGC Population reports,
-Gotify push dispatcher, sniper watchlist, Google Sheets sync, and CSV diagnostics.
+system settings persistence, multi-fallback Gotify push dispatcher, sniper watchlist,
+Google Sheets sync, and CSV diagnostics.
 """
 
 import io
@@ -169,6 +169,15 @@ def ensure_tables_exist():
             );
         """)
 
+        # 5. System Settings (Persistent Key-Value Store)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS system_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
         # Auto-migration columns
         for col, ctype in [
             ("pricecharting_url", "TEXT"),
@@ -189,6 +198,34 @@ def ensure_tables_exist():
 
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_master_search ON master_set_catalog(card_name, set_name, language, edition);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_lookup ON market_sales(card_name, grading_company, grade, condition_type);")
+
+
+# =============================================================
+# Persistent System Settings
+# =============================================================
+
+def get_system_setting(key: str, default: str = "") -> str:
+    """Retrieve persistent setting value from database."""
+    ensure_tables_exist()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM system_settings WHERE key = ? LIMIT 1;", (key,))
+        row = cursor.fetchone()
+        if row and row["value"]:
+            return row["value"]
+    return default
+
+
+def set_system_setting(key: str, value: str) -> None:
+    """Save persistent setting value to database."""
+    ensure_tables_exist()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO system_settings (key, value, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP;
+        """, (key, str(value).strip()))
 
 
 # =============================================================
@@ -257,7 +294,7 @@ def get_psa_cert_lookup_url(cert_number: str) -> str:
 
 
 # =============================================================
-# Gotify Notification Dispatcher (Self-Contained in Dashboard)
+# Multi-Fallback Gotify Notification Dispatcher
 # =============================================================
 
 def send_gotify_alert(
@@ -266,13 +303,39 @@ def send_gotify_alert(
     gotify_url: Optional[str] = None,
     gotify_token: Optional[str] = None,
 ) -> bool:
-    """Dispatches a push notification directly to Gotify server."""
-    base_url = (gotify_url or os.getenv("GOTIFY_URL", "http://10.0.0.48")).rstrip("/")
-    token = gotify_token or os.getenv("GOTIFY_APP_TOKEN", "")
+    """Dispatches a push notification directly to Gotify server with automatic fallback URLs."""
+    token = gotify_token or get_system_setting("GOTIFY_APP_TOKEN") or os.getenv("GOTIFY_APP_TOKEN", "")
 
     if not token or token == "your_gotify_app_token_here":
-        print("[Dashboard Gotify] Warning: GOTIFY_APP_TOKEN not configured in .env.")
+        print("[Dashboard Gotify] Warning: GOTIFY_APP_TOKEN not configured.")
         return False
+
+    url_candidates = []
+    if gotify_url:
+        url_candidates.append(gotify_url.rstrip("/"))
+    saved_url = get_system_setting("GOTIFY_URL")
+    if saved_url:
+        url_candidates.append(saved_url.rstrip("/"))
+    env_url = os.getenv("GOTIFY_URL")
+    if env_url:
+        url_candidates.append(env_url.rstrip("/"))
+
+    # Standard internal docker and local network fallbacks
+    url_candidates.extend([
+        "http://gotify:80",
+        "http://vulpix-gotify:80",
+        "http://10.0.0.48:8070",
+        "http://10.0.0.48:80",
+        "http://10.0.0.48",
+    ])
+
+    seen = set()
+    unique_urls = []
+    for u in url_candidates:
+        clean = u.rstrip("/")
+        if clean and clean not in seen:
+            seen.add(clean)
+            unique_urls.append(clean)
 
     rating = appraisal.get("deal_rating", "good_deal")
     priority = 8 if rating == "amazing_deal" else 6
@@ -297,31 +360,38 @@ def send_gotify_alert(
         }
     }).encode("utf-8")
 
-    try:
-        req = urllib.request.Request(
-            f"{base_url}/message",
-            data=payload_data,
-            headers={
-                "X-Gotify-Key": token,
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0"
-            }
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status in [200, 201]
-    except Exception as e:
-        print(f"[Dashboard Gotify] Connection Error to {base_url}: {e}")
-        return False
+    for base_url in unique_urls:
+        try:
+            req = urllib.request.Request(
+                f"{base_url}/message",
+                data=payload_data,
+                headers={
+                    "X-Gotify-Key": token,
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                if resp.status in [200, 201]:
+                    set_system_setting("GOTIFY_URL", base_url)
+                    set_system_setting("GOTIFY_APP_TOKEN", token)
+                    return True
+        except Exception as e:
+            print(f"[Dashboard Gotify] Connection attempt failed for {base_url}: {e}")
+            continue
+
+    return False
 
 
 # =============================================================
 # Automated Card Metadata & Image Enrichment
 # =============================================================
 
-def auto_enrich_master_catalog() -> Tuple[int, str]:
+def auto_enrich_master_catalog(force_all: bool = True) -> Tuple[int, str]:
     """
     Iterates through all cards in master_set_catalog, resolves missing/generic names,
     and grabs official high-res card scans from Pokemon.com / Pokecardex.
+    Guarantees that incorrect images (like Magikarp) or generic names are replaced.
     """
     ensure_tables_exist()
     updated = 0
@@ -332,12 +402,27 @@ def auto_enrich_master_catalog() -> Tuple[int, str]:
 
         for c in cards:
             resolved = resolve_card_metadata(c["set_name"], c["card_number"], c["card_name"])
-            new_name = resolved["card_name"] if (c["card_name"] == "Vulpix" and resolved["card_name"] != "Vulpix") else c["card_name"]
-            new_img = resolved["image_url"] if (not c["image_url"] or c["image_url"] == "https://images.pokemontcg.io/base1/68_hires.png") else c["image_url"]
-            new_year = resolved["release_year"] if c["release_year"] == 2000 and resolved["release_year"] != 2000 else c["release_year"]
-            new_rarity = resolved["rarity"] if c["rarity"] == "Common" and resolved["rarity"] != "Common" else c["rarity"]
+            new_name = resolved["card_name"]
+            new_img = resolved["image_url"]
+            new_year = resolved["release_year"]
+            new_rarity = resolved["rarity"]
 
-            if new_name != c["card_name"] or new_img != c["image_url"] or new_year != c["release_year"] or new_rarity != c["rarity"]:
+            should_update = False
+            # Differentiate generic 'Vulpix' into specific variants like 'Blaine's Vulpix'
+            if c["card_name"].strip().lower() in ["vulpix", "", "none", "nan", "null"] and new_name != "Vulpix":
+                should_update = True
+            elif force_all and new_name != c["card_name"]:
+                should_update = True
+
+            # Replace missing, default, or wrong card images (like Magikarp)
+            if (not c["image_url"] or c["image_url"] == "https://images.pokemontcg.io/base1/68_hires.png" or "gym2/73" in c["image_url"] or force_all) and new_img:
+                if new_img != c["image_url"]:
+                    should_update = True
+
+            if c["release_year"] == 2000 and new_year != 2000:
+                should_update = True
+
+            if should_update:
                 cursor.execute("""
                     UPDATE master_set_catalog SET
                         card_name = :new_name,
@@ -346,10 +431,10 @@ def auto_enrich_master_catalog() -> Tuple[int, str]:
                         rarity = :new_rarity
                     WHERE id = :id;
                 """, {
-                    "new_name": new_name,
-                    "new_img": new_img,
-                    "new_year": new_year,
-                    "new_rarity": new_rarity,
+                    "new_name": new_name or c["card_name"],
+                    "new_img": new_img or c["image_url"],
+                    "new_year": new_year or c["release_year"],
+                    "new_rarity": new_rarity or c["rarity"],
                     "id": c["id"],
                 })
                 updated += 1
@@ -438,7 +523,7 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]]) -> int:
                 c_name = resolved["card_name"]
 
             img_url = str(card.get("image_url") or "").strip()
-            if (not img_url or img_url == "https://images.pokemontcg.io/base1/68_hires.png") and resolved.get("image_url"):
+            if (not img_url or img_url == "https://images.pokemontcg.io/base1/68_hires.png" or "gym2/73" in img_url) and resolved.get("image_url"):
                 img_url = resolved["image_url"]
 
             year_val = int(card.get("release_year") or 2000)
@@ -752,7 +837,7 @@ def sync_master_catalog_from_df(
         rarity_val = str(row.get(col_map.get("rarity"), resolved.get("rarity", "Common"))).strip()
 
         img_val = str(row.get(col_map.get("image_url"), "")).strip()
-        if not img_val or img_val == "https://images.pokemontcg.io/base1/68_hires.png":
+        if not img_val or img_val == "https://images.pokemontcg.io/base1/68_hires.png" or "gym2/73" in img_val:
             img_val = resolved.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png")
 
         notes_val = str(row.get(col_map.get("notes"), "")).strip()
@@ -908,7 +993,7 @@ def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
         pop_num = int(parse_num(row.get(col_map.get("pop_grade10")), 0))
 
         img_val = str(row.get(col_map.get("image_url"), "")).strip()
-        if not img_val or img_val == "https://images.pokemontcg.io/base1/68_hires.png":
+        if not img_val or img_val == "https://images.pokemontcg.io/base1/68_hires.png" or "gym2/73" in img_val:
             img_val = resolved.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png")
 
         card_data = {
