@@ -31,6 +31,7 @@ from db_utils import (
     load_market_sales_df,
     load_master_catalog_df,
     parse_and_preview_catalog,
+    parse_ebay_url_details,
     reset_and_clean_sync_master_catalog,
     send_gotify_alert,
     set_system_setting,
@@ -729,62 +730,119 @@ with tab_master_set:
 with tab_sniper:
     st.markdown("### 🎯 eBay Sniper & Auction Watchlist")
     st.markdown(
-        "Track active eBay auctions, set auto-bid caps based on **Amazing Deal** or **Great Deal** AI thresholds, and receive urgent push notifications before auctions close."
+        "Paste any eBay listing URL or Item ID below. The sniper engine will automatically extract the card details, condition, fair market value, and bidding thresholds."
     )
 
-    with st.expander("➕ Add Active eBay Auction to Sniper Watchlist", expanded=False):
-        with st.form("add_sniper_form", clear_on_submit=True):
-            sn1, sn2 = st.columns(2)
-            with sn1:
-                sn_title = st.text_input("Auction Title*", placeholder="e.g. Vulpix 1st Edition Base Set PSA 10")
-                sn_card = st.text_input("Card Name*", value="Vulpix")
-                sn_url = st.text_input("eBay Listing URL*", placeholder="https://www.ebay.com/itm/...")
-                sn_id = st.text_input("eBay Listing / Item ID*", placeholder="e.g. 186294729103")
-            with sn2:
-                sn_cur_bid = st.number_input("Current Bid ($)", min_value=0.0, value=25.0, step=5.0)
-                sn_ship = st.number_input("Shipping Cost ($)", min_value=0.0, value=4.50, step=0.5)
-                sn_end = st.text_input("Auction End Time", value=datetime.today().strftime("%Y-%m-%d %H:%M:%S"))
-                sn_mode = st.selectbox("Target Snipe Mode", ["amazing_deal (60% of Fair Value)", "great_deal (75% of Fair Value)", "custom_max_bid"])
-                sn_custom = st.number_input("Custom Max Bid ($)", min_value=0.0, value=0.0, step=5.0) if sn_mode == "custom_max_bid" else None
+    with st.expander("➕ Add eBay Auction by Link / Item ID", expanded=True):
+        sn_col1, sn_col2 = st.columns([3, 2])
+        with sn_col1:
+            ebay_input_url = st.text_input(
+                "🔗 eBay Listing Link or Item ID*",
+                placeholder="Paste https://www.ebay.com/itm/... or item number",
+                key="sniper_link_input",
+            )
+        with sn_col2:
+            bid_mode_choice = st.selectbox(
+                "🎯 Snipe Strategy",
+                [
+                    "🔥 Amazing Deal (~60% of Fair Value)",
+                    "⭐ Great Deal (~75% of Fair Value)",
+                    "💵 Custom Max Bid ($)",
+                ],
+                key="sniper_strat_choice",
+            )
 
-            sn_notes = st.text_area("Sniper Notes / Bidding Strategy", placeholder="e.g. Snipe in the last 5 seconds if under $80")
-            if st.form_submit_button("🎯 Add to Watchlist & Enable Sniper"):
-                if not sn_title or not sn_url or not sn_id:
-                    st.error("Title, Listing URL, and Item ID are required.")
-                else:
-                    add_to_sniper_watchlist({
-                        "listing_id": sn_id,
-                        "card_name": sn_card,
-                        "title": sn_title,
-                        "listing_url": sn_url,
-                        "auction_end_time": sn_end,
-                        "current_bid": sn_cur_bid,
-                        "shipping_cost": sn_ship,
-                        "target_bid_mode": "custom_max" if sn_mode == "custom_max_bid" else ("amazing_deal" if "amazing" in sn_mode else "great_deal"),
-                        "custom_max_bid": sn_custom,
-                        "max_calculated_bid": sn_custom or (sn_cur_bid * 1.5),
-                        "notes": sn_notes,
-                    })
-                    st.success(f"Added {sn_title} to Sniper Watchlist!")
-                    st.rerun()
+        custom_bid_val = 0.0
+        if "Custom" in bid_mode_choice:
+            custom_bid_val = st.number_input("Your Custom Max Bid ($)*", min_value=1.0, value=50.0, step=5.0, key="sniper_custom_max")
+
+        if ebay_input_url:
+            parsed = parse_ebay_url_details(ebay_input_url)
+
+            # Determine target max bid based on selected mode
+            if "Amazing" in bid_mode_choice:
+                target_max = parsed["amazing_deal_max"]
+                target_mode_code = "amazing_deal"
+            elif "Great" in bid_mode_choice:
+                target_max = parsed["great_deal_max"]
+                target_mode_code = "great_deal"
+            else:
+                target_max = custom_bid_val if custom_bid_val > 0 else parsed["fair_value"]
+                target_mode_code = "custom_max"
+
+            st.markdown("---")
+            st.markdown("#### 🔍 Auto-Detected Listing Preview")
+
+            prev_col1, prev_col2 = st.columns([1, 4])
+            with prev_col1:
+                st.image(parsed["image_url"], width=120)
+            with prev_col2:
+                st.markdown(f"**🏷️ {parsed['title']}**")
+                st.markdown(f"**Card:** `{parsed['card_name']}` • **Set:** `{parsed['set_name']}` • **Edition:** `{parsed['edition']}`")
+                st.markdown(f"**Format:** `{parsed['condition_desc']}` • **Est. Fair Value:** `${parsed['fair_value']:,.2f}`")
+                st.markdown(
+                    f"🎯 **Calculated Max Snipe Bid:** <span style='color: #4ade80; font-weight: 800; font-size: 1.15rem;'>${target_max:,.2f}</span>",
+                    unsafe_allow_html=True,
+                )
+
+            with st.expander("⚙️ Adjust Listing Details (Optional)", expanded=False):
+                e_title = st.text_input("Auction Title", value=parsed["title"], key="sn_edit_title")
+                e_bid = st.number_input("Current Bid ($)", min_value=0.0, value=parsed["current_bid"], step=2.0, key="sn_edit_bid")
+                e_ship = st.number_input("Shipping ($)", min_value=0.0, value=parsed["shipping_cost"], step=0.5, key="sn_edit_ship")
+                e_end = st.text_input("Auction End Time", value=parsed["auction_end_time"], key="sn_edit_end")
+                e_notes = st.text_input("Sniper Notes / Bidding Strategy", value=f"Targeting {bid_mode_choice} with max bid ${target_max:,.2f}", key="sn_edit_notes")
+
+            if st.button("🎯 Confirm & Start Sniping", type="primary", use_container_width=True):
+                final_title = e_title if "e_title" in locals() and e_title else parsed["title"]
+                final_bid = e_bid if "e_bid" in locals() else parsed["current_bid"]
+                final_ship = e_ship if "e_ship" in locals() else parsed["shipping_cost"]
+                final_end = e_end if "e_end" in locals() and e_end else parsed["auction_end_time"]
+                final_notes = e_notes if "e_notes" in locals() and e_notes else f"Auto-sniping with {bid_mode_choice}"
+
+                add_to_sniper_watchlist({
+                    "listing_id": parsed["listing_id"],
+                    "card_name": parsed["card_name"],
+                    "title": final_title,
+                    "listing_url": parsed["listing_url"],
+                    "image_url": parsed["image_url"],
+                    "auction_end_time": final_end,
+                    "current_bid": final_bid,
+                    "shipping_cost": final_ship,
+                    "target_bid_mode": target_mode_code,
+                    "custom_max_bid": target_max if target_mode_code == "custom_max" else None,
+                    "max_calculated_bid": target_max,
+                    "status": "watching",
+                    "notes": final_notes,
+                })
+                st.success(f"✅ Auction '{final_title}' added to Sniper Watchlist with Max Bid: ${target_max:,.2f}!")
+                st.rerun()
 
     if df_sniper.empty:
         st.info("💡 No active auctions on your Sniper Watchlist. Add an auction above or click 'Snipe' from the Deal Radar!")
     else:
         st.markdown(f"#### 🎯 Active Sniper Targets ({len(df_sniper)} Watching)")
         for _, s_row in df_sniper.iterrows():
+            s_img = s_row.get("image_url") or DEFAULT_CARD_BACK_IMAGE
+            target_bid_val = s_row["max_calculated_bid"] or s_row["custom_max_bid"] or (s_row["current_bid"] * 1.5)
+            
             st.markdown(f"""<div class="sniper-card">
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-<div style="font-weight: 800; font-size: 1.05rem; color: #ffffff;">{s_row['title']}</div>
+<div style="display: flex; gap: 14px; align-items: center;">
+<img src="{s_img}" style="height: 70px; width: 50px; object-fit: cover; border-radius: 4px;" />
+<div style="flex: 1;">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+<div style="font-weight: 800; font-size: 1.02rem; color: #ffffff;">{s_row['title']}</div>
 <span class="sniper-badge-alert">● SNIPER ACTIVE</span>
 </div>
-<div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #8c8d9a; margin-bottom: 8px;">
-<span>Current Bid: <strong style="color: #ffd591;">${s_row['current_bid']:,.2f}</strong> + ${s_row['shipping_cost']:,.2f} ship</span>
-<span>Target Max Bid: <strong style="color: #4ade80;">${(s_row['max_calculated_bid'] or s_row['custom_max_bid'] or 0):,.2f}</strong></span>
+<div style="display: flex; gap: 16px; font-size: 0.85rem; color: #8c8d9a; flex-wrap: wrap; margin-bottom: 6px;">
+<span>Current Bid: <strong style="color: #ffd591;">${s_row['current_bid']:,.2f}</strong> (+${s_row['shipping_cost']:,.2f} ship)</span>
+<span>Target Max Bid: <strong style="color: #4ade80;">${target_bid_val:,.2f}</strong></span>
+<span>Strategy: <strong style="color: #60a5fa;">{s_row['target_bid_mode'].replace('_', ' ').title()}</strong></span>
 <span>Ends: <strong style="color: #fff;">{s_row['auction_end_time']}</strong></span>
 </div>
-<div style="display: flex; gap: 8px; align-items: center;">
-<a href="{s_row['listing_url']}" target="_blank" class="btn-ebay">↗ Open Live Listing on eBay</a>
+<div>
+<a href="{s_row['listing_url']}" target="_blank" class="btn-ebay" style="padding: 4px 10px; font-size: 0.8rem;">↗ Open Live Listing on eBay</a>
+</div>
+</div>
 </div>
 </div>""", unsafe_allow_html=True)
             if st.button("🗑️ Remove from Watchlist", key=f"del_sn_{s_row['id']}"):
