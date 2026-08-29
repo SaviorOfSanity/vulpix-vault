@@ -1,8 +1,6 @@
 """
-eBay scraping and title parser module for Vulpix Pokémon cards.
-Extracts condition (Raw vs Graded), grading companies, numerical grades,
-special grade labels (Pristine 10, Black Label 10, Gem Mint 10), editions,
-languages, and error card attributes.
+eBay scraping, title parser, and search URL generator module for Vulpix Pokémon cards.
+Supports Raw singles, Grade 10 slabs, special grades, and auction detail parsing.
 """
 
 import re
@@ -44,23 +42,71 @@ ERROR_PATTERNS = [
 ]
 
 
+def generate_ebay_search_url(
+    card_name: str,
+    set_name: str = "",
+    card_number: str = "",
+    edition: str = "",
+    language: str = "English",
+    grade_tier: Optional[str] = None,
+    is_raw: bool = False,
+    is_auction_only: bool = False,
+) -> str:
+    """
+    Generates a direct, highly-targeted eBay search URL for any Vulpix card.
+    """
+    query_parts = [card_name]
+
+    # Clean set name (remove year parentheses)
+    clean_set = re.sub(r"\([0-9]{4}\)", "", set_name).strip()
+    if clean_set and clean_set.lower() not in ["unknown set", ""]:
+        query_parts.append(f'"{clean_set}"')
+
+    # Card number
+    clean_num = card_number.replace("No Number", "").strip()
+    if clean_num:
+        query_parts.append(clean_num)
+
+    # Edition keywords
+    if edition and edition.lower() not in ["unlimited", "standard", ""]:
+        query_parts.append(f'"{edition}"')
+
+    # Language keywords
+    if language and language.lower() not in ["english", ""]:
+        query_parts.append(f'"{language}"')
+
+    # Grade / Condition filter
+    if is_raw:
+        query_parts.append("(raw, ungraded)")
+    elif grade_tier:
+        if "Black Label" in grade_tier:
+            query_parts.append('"Black Label"')
+        elif "Pristine" in grade_tier:
+            query_parts.append('"Pristine 10"')
+        elif "Gem Mint" in grade_tier or "10" in grade_tier:
+            query_parts.append("(PSA 10, CGC 10, BGS 10)")
+
+    query_str = " ".join(query_parts)
+    encoded = urllib.parse.quote_plus(query_str)
+
+    # eBay search URL with sorting (newly listed / lowest price)
+    base = f"https://www.ebay.com/sch/i.html?_nkw={encoded}&_sacat=0&_sop=10"
+    if is_auction_only:
+        base += "&LH_Auction=1"
+    return base
+
+
 def extract_special_grading_details(title: str) -> Tuple[str, Optional[str], Optional[float], str]:
-    """
-    Extracts condition_type ('Graded' or 'Raw'), grading company, grade, and grade_label.
-    Detects special grades like Pristine 10, Black Label 10, Gem Mint 10.
-    """
+    """Extracts condition, grading company, numerical grade, and grade tier label."""
     title_clean = title.upper()
 
-    # Detect Black Label
     if "BLACK LABEL" in title_clean or "BGS 10 BLACK" in title_clean:
         return "Graded", "BGS", 10.0, "Black Label 10"
 
-    # Detect Pristine 10
     if "PRISTINE" in title_clean or "PERFECT 10" in title_clean:
         co = "CGC" if "CGC" in title_clean else ("BGS" if "BGS" in title_clean else "PSA")
         return "Graded", co, 10.0, "Pristine 10"
 
-    # Detect Standard Grading Companies
     grading_co = None
     for co in GRADING_COMPANIES:
         if re.search(rf"\b{co}\b", title_clean):
@@ -68,13 +114,8 @@ def extract_special_grading_details(title: str) -> Tuple[str, Optional[str], Opt
             break
 
     if not grading_co:
-        # Check if explicitly Raw or Ungraded
-        if any(term in title_clean for term in ["RAW", "UNGRADED", "NM", "LP", "MINT / NM", "SINGLE"]):
-            return "Raw", "RAW", None, "Raw Single"
-        # If no grading company mentioned, assume Raw Single
         return "Raw", "RAW", None, "Raw Single"
 
-    # Extract numerical grade
     grade_val = 10.0
     grade_match = re.search(
         rf"(?:{grading_co}|GRADE|GEM\s*MINT|MINT|NM-MT)?\s*([0-9]{{1,2}}(?:\.[0-9])?)\b",
@@ -94,21 +135,18 @@ def extract_special_grading_details(title: str) -> Tuple[str, Optional[str], Opt
 
 def extract_card_metadata(title: str) -> Dict[str, Any]:
     """Extracts card name, language, edition, and error information from title."""
-    # Language
     language = "English"
     for pattern, lang in LANGUAGES:
         if re.search(pattern, title):
             language = lang
             break
 
-    # Edition
     edition = "Unlimited"
     for pattern, ed in EDITIONS:
         if re.search(pattern, title):
             edition = ed
             break
 
-    # Error
     is_error = 0
     error_desc = ""
     for pattern, err in ERROR_PATTERNS:
@@ -117,7 +155,6 @@ def extract_card_metadata(title: str) -> Dict[str, Any]:
             error_desc = err
             break
 
-    # Card Name Normalization
     card_name = "Vulpix"
     if re.search(r"(?i)alolan\s+vulpix\s*vstar", title):
         card_name = "Alolan Vulpix VSTAR"
@@ -167,10 +204,7 @@ def extract_listing_id(url: str, default_title: str = "") -> str:
 
 
 def scrape_ebay_listings(query: str = "Vulpix Pokemon card (graded, PSA 10, raw, 1st edition)") -> List[Dict[str, Any]]:
-    """
-    Scrapes eBay listings covering both Raw cards and Graded 10 slabs.
-    Returns structured listing dictionaries.
-    """
+    """Scrapes eBay listings covering both Raw cards and Graded 10 slabs."""
     encoded_query = urllib.parse.quote_plus(query)
     url = f"https://www.ebay.com/sch/i.html?_nkw={encoded_query}&_sacat=0&_sop=10"
 
@@ -224,7 +258,6 @@ def scrape_ebay_listings(query: str = "Vulpix Pokemon card (graded, PSA 10, raw,
 
             listing_type = "Auction" if item.select_one(".s-item__bids") else "Buy It Now"
 
-            # Parse Grading, Special Label, Edition, Language & Errors
             condition_type, grading_co, grade, grade_label = extract_special_grading_details(title)
             meta = extract_card_metadata(title)
 

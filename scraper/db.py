@@ -1,7 +1,7 @@
 """
 Database management module for The Vulpix Vault.
 Configures SQLite with WAL mode, auto-migrates schemas, creates master_set_catalog,
-and provides helper queries for Master Set completion and multi-tier pricing.
+my_collection, market_sales, and ebay_sniper_watchlist tables.
 """
 
 import os
@@ -47,18 +47,18 @@ def _add_column_if_missing(cursor: sqlite3.Cursor, table: str, column: str, col_
 
 
 def init_db(db_path: Optional[str] = None) -> None:
-    """Initialize or migrate database schema with master_set_catalog, my_collection, and market_sales."""
+    """Initialize or migrate database schema with master_set_catalog, my_collection, market_sales, and ebay_sniper_watchlist."""
     with get_db_connection(db_path) as conn:
         cursor = conn.cursor()
 
-        # 1. Master Set Catalog (The definitive list of every known Vulpix card)
+        # 1. Master Set Catalog
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS master_set_catalog (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 card_name TEXT NOT NULL,
                 set_name TEXT NOT NULL,
                 card_number TEXT,
-                release_year INTEGER,
+                release_year INTEGER DEFAULT 2000,
                 language TEXT DEFAULT 'English',
                 edition TEXT DEFAULT 'Unlimited',
                 rarity TEXT DEFAULT 'Common',
@@ -80,20 +80,20 @@ def init_db(db_path: Optional[str] = None) -> None:
                 card_name TEXT NOT NULL,
                 set_name TEXT NOT NULL,
                 card_number TEXT,
-                grading_company TEXT NOT NULL,
-                grade REAL NOT NULL,
-                cert_number TEXT,
-                purchase_price REAL NOT NULL,
+                grading_company TEXT NOT NULL DEFAULT 'RAW',
+                grade REAL NOT NULL DEFAULT 0.0,
+                grade_label TEXT DEFAULT 'Gem Mint',
+                cert_number TEXT DEFAULT '',
+                purchase_price REAL NOT NULL DEFAULT 0.0,
                 purchase_date TEXT NOT NULL,
-                image_url TEXT,
-                notes TEXT,
                 edition TEXT DEFAULT 'Unlimited',
                 language TEXT DEFAULT 'English',
                 is_error INTEGER DEFAULT 0,
                 error_type TEXT,
-                grade_label TEXT DEFAULT 'Gem Mint',
                 is_raw INTEGER DEFAULT 0,
                 master_card_id INTEGER,
+                image_url TEXT,
+                notes TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
@@ -127,7 +127,28 @@ def init_db(db_path: Optional[str] = None) -> None:
             );
         """)
 
-        # Auto-migration for existing tables (ensure columns exist)
+        # 4. eBay Sniper & Auction Watchlist
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ebay_sniper_watchlist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                listing_id TEXT UNIQUE NOT NULL,
+                card_name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                listing_url TEXT NOT NULL,
+                image_url TEXT,
+                auction_end_time TEXT,
+                current_bid REAL NOT NULL DEFAULT 0.0,
+                shipping_cost REAL DEFAULT 0.0,
+                target_bid_mode TEXT DEFAULT 'amazing_deal',
+                custom_max_bid REAL,
+                max_calculated_bid REAL,
+                status TEXT DEFAULT 'watching',
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        # Migrations for existing tables
         for col, ctype in [
             ("edition", "TEXT DEFAULT 'Unlimited'"),
             ("language", "TEXT DEFAULT 'English'"),
@@ -148,54 +169,59 @@ def init_db(db_path: Optional[str] = None) -> None:
         ]:
             _add_column_if_missing(cursor, "market_sales", col, ctype)
 
-        # Performance Indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_master_search ON master_set_catalog(card_name, set_name, language, edition);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_lookup ON market_sales(card_name, grading_company, grade, condition_type);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_deal ON market_sales(deal_rating);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_collection_lookup ON my_collection(card_name, grading_company, grade, language, edition);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sniper_status ON ebay_sniper_watchlist(status);")
 
 
 # =============================================================
-# Master Set Catalog Queries
+# Sniper Watchlist Database Queries
 # =============================================================
 
-def get_master_set_catalog(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Fetch the full Master Set catalog."""
+def get_sniper_watchlist(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Retrieve all active items on the sniper watchlist."""
     with get_db_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT * FROM master_set_catalog
-            ORDER BY release_year ASC, set_name ASC, card_number ASC;
-        """)
+        cursor.execute("SELECT * FROM ebay_sniper_watchlist ORDER BY auction_end_time ASC;")
         return [dict(row) for row in cursor.fetchall()]
 
 
-def upsert_master_card(card: Dict[str, Any], db_path: Optional[str] = None) -> int:
-    """Insert or update a card in the master catalog."""
+def add_to_sniper_watchlist(item: Dict[str, Any], db_path: Optional[str] = None) -> int:
+    """Add or update an eBay auction on the sniper watchlist."""
     with get_db_connection(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO master_set_catalog (
-                card_name, set_name, card_number, release_year,
-                language, edition, rarity, is_error, error_description,
-                est_raw_price, est_grade10_price, image_url, notes
+            INSERT INTO ebay_sniper_watchlist (
+                listing_id, card_name, title, listing_url, image_url,
+                auction_end_time, current_bid, shipping_cost, target_bid_mode,
+                custom_max_bid, max_calculated_bid, status, notes
             ) VALUES (
-                :card_name, :set_name, :card_number, :release_year,
-                :language, :edition, :rarity, :is_error, :error_description,
-                :est_raw_price, :est_grade10_price, :image_url, :notes
+                :listing_id, :card_name, :title, :listing_url, :image_url,
+                :auction_end_time, :current_bid, :shipping_cost, :target_bid_mode,
+                :custom_max_bid, :max_calculated_bid, :status, :notes
             )
-            ON CONFLICT(card_name, set_name, card_number, language, edition, is_error)
-            DO UPDATE SET
-                release_year = excluded.release_year,
-                rarity = excluded.rarity,
-                error_description = excluded.error_description,
-                est_raw_price = COALESCE(NULLIF(excluded.est_raw_price, 0), master_set_catalog.est_raw_price),
-                est_grade10_price = COALESCE(NULLIF(excluded.est_grade10_price, 0), master_set_catalog.est_grade10_price),
-                image_url = COALESCE(excluded.image_url, master_set_catalog.image_url),
-                notes = COALESCE(excluded.notes, master_set_catalog.notes);
-        """, card)
+            ON CONFLICT(listing_id) DO UPDATE SET
+                current_bid = excluded.current_bid,
+                auction_end_time = excluded.auction_end_time,
+                target_bid_mode = excluded.target_bid_mode,
+                custom_max_bid = excluded.custom_max_bid,
+                max_calculated_bid = excluded.max_calculated_bid,
+                status = excluded.status,
+                notes = excluded.notes;
+        """, item)
         return cursor.lastrowid or 0
 
+
+def delete_from_sniper_watchlist(item_id: int, db_path: Optional[str] = None) -> None:
+    """Remove an item from the sniper watchlist."""
+    with get_db_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM ebay_sniper_watchlist WHERE id = ?;", (item_id,))
+
+
+# =============================================================
+# Master Set & Collection Queries
+# =============================================================
 
 def bulk_upsert_master_catalog(cards: List[Dict[str, Any]], db_path: Optional[str] = None) -> int:
     """Bulk insert or update a list of master set cards."""
@@ -204,19 +230,19 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]], db_path: Optional[st
         cursor = conn.cursor()
         for card in cards:
             params = {
-                "card_name": card.get("card_name", "Vulpix"),
-                "set_name": card.get("set_name", "Unknown Set"),
-                "card_number": str(card.get("card_number", "")),
+                "card_name": str(card.get("card_name", "Vulpix")).strip(),
+                "set_name": str(card.get("set_name", "Unknown Set")).strip(),
+                "card_number": str(card.get("card_number", "")).strip(),
                 "release_year": int(card.get("release_year") or 2000),
-                "language": card.get("language", "English"),
-                "edition": card.get("edition", "Unlimited"),
-                "rarity": card.get("rarity", "Common"),
+                "language": str(card.get("language", "English")).strip(),
+                "edition": str(card.get("edition", "Unlimited")).strip(),
+                "rarity": str(card.get("rarity", "Common")).strip(),
                 "is_error": 1 if card.get("is_error") in [1, True, "1", "true", "True", "yes"] else 0,
-                "error_description": card.get("error_description", ""),
+                "error_description": str(card.get("error_description", "")).strip(),
                 "est_raw_price": float(card.get("est_raw_price") or 0.0),
                 "est_grade10_price": float(card.get("est_grade10_price") or 0.0),
-                "image_url": card.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png"),
-                "notes": card.get("notes", ""),
+                "image_url": str(card.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png")).strip(),
+                "notes": str(card.get("notes", "")).strip(),
             }
             cursor.execute("""
                 INSERT INTO master_set_catalog (
@@ -233,18 +259,14 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]], db_path: Optional[st
                     release_year = excluded.release_year,
                     rarity = excluded.rarity,
                     error_description = excluded.error_description,
-                    est_raw_price = COALESCE(NULLIF(excluded.est_raw_price, 0), master_set_catalog.est_raw_price),
-                    est_grade10_price = COALESCE(NULLIF(excluded.est_grade10_price, 0), master_set_catalog.est_grade10_price),
-                    image_url = COALESCE(excluded.image_url, master_set_catalog.image_url),
-                    notes = COALESCE(excluded.notes, master_set_catalog.notes);
+                    est_raw_price = CASE WHEN excluded.est_raw_price > 0 THEN excluded.est_raw_price ELSE master_set_catalog.est_raw_price END,
+                    est_grade10_price = CASE WHEN excluded.est_grade10_price > 0 THEN excluded.est_grade10_price ELSE master_set_catalog.est_grade10_price END,
+                    image_url = CASE WHEN excluded.image_url != '' THEN excluded.image_url ELSE master_set_catalog.image_url END,
+                    notes = CASE WHEN excluded.notes != '' THEN excluded.notes ELSE master_set_catalog.notes END;
             """, params)
             count += 1
     return count
 
-
-# =============================================================
-# Collection & Market Queries
-# =============================================================
 
 def is_listing_recorded(listing_id: str, db_path: Optional[str] = None) -> bool:
     """Check if an eBay listing has already been recorded in market_sales."""
@@ -321,7 +343,7 @@ def get_collection(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
         cursor.execute("""
             SELECT id, card_name, set_name, card_number, grading_company, 
                    grade, grade_label, cert_number, purchase_price, purchase_date,
-                   edition, language, is_error, error_type, is_raw, image_url, notes
+                   edition, language, is_error, error_type, is_raw, master_card_id, image_url, notes
             FROM my_collection
             ORDER BY purchase_date DESC;
         """)
@@ -337,12 +359,30 @@ def insert_collection_card(card: Dict[str, Any], db_path: Optional[str] = None) 
                 card_name, set_name, card_number, grading_company,
                 grade, grade_label, cert_number, purchase_price, purchase_date,
                 edition, language, is_error, error_type, is_raw,
-                image_url, notes
+                master_card_id, image_url, notes
             ) VALUES (
                 :card_name, :set_name, :card_number, :grading_company,
                 :grade, :grade_label, :cert_number, :purchase_price, :purchase_date,
                 :edition, :language, :is_error, :error_type, :is_raw,
-                :image_url, :notes
+                :master_card_id, :image_url, :notes
             )
-        """, card)
+        """, {
+            "card_name": card.get("card_name", "Vulpix"),
+            "set_name": card.get("set_name", "Unknown Set"),
+            "card_number": card.get("card_number", ""),
+            "grading_company": card.get("grading_company", "RAW"),
+            "grade": card.get("grade", 0.0),
+            "grade_label": card.get("grade_label", "Gem Mint"),
+            "cert_number": card.get("cert_number", ""),
+            "purchase_price": card.get("purchase_price", 0.0),
+            "purchase_date": card.get("purchase_date", "2024-01-01"),
+            "edition": card.get("edition", "Unlimited"),
+            "language": card.get("language", "English"),
+            "is_error": 1 if card.get("is_error") else 0,
+            "error_type": card.get("error_type"),
+            "is_raw": 1 if card.get("is_raw") else 0,
+            "master_card_id": card.get("master_card_id"),
+            "image_url": card.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png"),
+            "notes": card.get("notes", ""),
+        })
         return cursor.lastrowid or 0

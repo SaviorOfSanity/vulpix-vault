@@ -1,7 +1,7 @@
 """
 Custom CSS styling and HTML components for The Vulpix Vault Streamlit Dashboard.
 Includes special grade badges (Pristine 10, Black Label 10), Error indicators,
-and Master Set progress tracking.
+eBay sniper auction styles, and Master Set progress tracking.
 """
 
 from typing import Any, Optional
@@ -225,6 +225,51 @@ def apply_custom_styles():
             display: inline-block;
         }
 
+        /* Sniper Watchlist Styles */
+        .sniper-card {
+            background: #181920;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 14px;
+        }
+        .sniper-badge-alert {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid #ef4444;
+            color: #f87171;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-weight: 800;
+            font-size: 0.75rem;
+            display: inline-block;
+            animation: pulse 1.5s infinite;
+        }
+        .sniper-badge-ok {
+            background: rgba(34, 197, 94, 0.15);
+            border: 1px solid #22c55e;
+            color: #4ade80;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 0.75rem;
+            display: inline-block;
+        }
+
+        .btn-ebay {
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            color: white !important;
+            text-decoration: none;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.78rem;
+            display: inline-block;
+            transition: opacity 0.2s ease;
+        }
+        .btn-ebay:hover {
+            opacity: 0.9;
+        }
+
         .block-container {
             padding-top: 1.8rem;
             padding-bottom: 3rem;
@@ -242,7 +287,7 @@ def render_header():
         <div class="vault-header">
             <div>
                 <div class="vault-title">🦊 The Vulpix Vault</div>
-                <div class="vault-subtitle">Master Set Completion Tracker, Special Grades & Multi-Tier AI Deal Radar</div>
+                <div class="vault-subtitle">Master Set Completion Tracker, eBay Sniper & Multi-Tier AI Deal Radar</div>
             </div>
             <div style="text-align: right;">
                 <span style="background: rgba(74, 222, 128, 0.15); color: #4ade80; border: 1px solid #4ade80; padding: 6px 14px; border-radius: 20px; font-weight: 700; font-size: 0.85rem;">

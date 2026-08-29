@@ -1,7 +1,7 @@
 """
 Database utility module for Streamlit Dashboard.
 100% Self-contained: manages SQLite WAL mode, Master Set catalog, collection CRUD,
-editing, Google Sheets sync, and CSV bulk import of owned and master cards.
+eBay search query generation, sniper watchlist, Google Sheets sync, and CSV diagnostics.
 """
 
 import io
@@ -11,6 +11,7 @@ import sqlite3
 import urllib.parse
 import urllib.request
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
@@ -79,7 +80,7 @@ def ensure_tables_exist():
             );
         """)
 
-        # 2. Personal Collection of Slabs & Raw Cards
+        # 2. Personal Collection
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS my_collection (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,7 +105,7 @@ def ensure_tables_exist():
             );
         """)
 
-        # 3. Market Sales & Listing Tracking
+        # 3. Market Sales
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS market_sales (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,7 +134,28 @@ def ensure_tables_exist():
             );
         """)
 
-        # Auto-migration for my_collection
+        # 4. Sniper Watchlist
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ebay_sniper_watchlist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                listing_id TEXT UNIQUE NOT NULL,
+                card_name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                listing_url TEXT NOT NULL,
+                image_url TEXT,
+                auction_end_time TEXT,
+                current_bid REAL NOT NULL DEFAULT 0.0,
+                shipping_cost REAL DEFAULT 0.0,
+                target_bid_mode TEXT DEFAULT 'amazing_deal',
+                custom_max_bid REAL,
+                max_calculated_bid REAL,
+                status TEXT DEFAULT 'watching',
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        # Auto-migration columns
         for col, ctype in [
             ("edition", "TEXT DEFAULT 'Unlimited'"),
             ("language", "TEXT DEFAULT 'English'"),
@@ -145,7 +167,6 @@ def ensure_tables_exist():
         ]:
             _add_column_if_missing(cursor, "my_collection", col, ctype)
 
-        # Auto-migration for market_sales
         for col, ctype in [
             ("grade_label", "TEXT DEFAULT 'Gem Mint'"),
             ("condition_type", "TEXT DEFAULT 'Graded'"),
@@ -157,6 +178,115 @@ def ensure_tables_exist():
 
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_master_search ON master_set_catalog(card_name, set_name, language, edition);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_lookup ON market_sales(card_name, grading_company, grade, condition_type);")
+
+
+# =============================================================
+# eBay Search URL Generator
+# =============================================================
+
+def generate_ebay_search_url(
+    card_name: str,
+    set_name: str = "",
+    card_number: str = "",
+    edition: str = "",
+    language: str = "English",
+    grade_tier: Optional[str] = None,
+    is_raw: bool = False,
+    is_auction_only: bool = False,
+) -> str:
+    """Generates targeted eBay search URL for any Vulpix card."""
+    query_parts = [card_name]
+
+    clean_set = re.sub(r"\([0-9]{4}\)", "", set_name).strip()
+    if clean_set and clean_set.lower() not in ["unknown set", ""]:
+        query_parts.append(f'"{clean_set}"')
+
+    clean_num = card_number.replace("No Number", "").strip()
+    if clean_num:
+        query_parts.append(clean_num)
+
+    if edition and edition.lower() not in ["unlimited", "standard", ""]:
+        query_parts.append(f'"{edition}"')
+
+    if language and language.lower() not in ["english", ""]:
+        query_parts.append(f'"{language}"')
+
+    if is_raw:
+        query_parts.append("(raw, ungraded, NM)")
+    elif grade_tier:
+        if "Black Label" in grade_tier:
+            query_parts.append('"Black Label"')
+        elif "Pristine" in grade_tier:
+            query_parts.append('"Pristine 10"')
+        elif "Gem Mint" in grade_tier or "10" in grade_tier:
+            query_parts.append("(PSA 10, CGC 10, BGS 10)")
+
+    query_str = " ".join(query_parts)
+    encoded = urllib.parse.quote_plus(query_str)
+    url = f"https://www.ebay.com/sch/i.html?_nkw={encoded}&_sacat=0&_sop=10"
+    if is_auction_only:
+        url += "&LH_Auction=1"
+    return url
+
+
+# =============================================================
+# Sniper Watchlist Operations
+# =============================================================
+
+def get_sniper_watchlist_df() -> pd.DataFrame:
+    """Retrieve sniper watchlist items with formatted time status."""
+    ensure_tables_exist()
+    with get_db_connection() as conn:
+        df = pd.read_sql_query("SELECT * FROM ebay_sniper_watchlist ORDER BY auction_end_time ASC", conn)
+    return df
+
+
+def add_to_sniper_watchlist(item: Dict[str, Any]) -> int:
+    """Add or update an eBay auction on the sniper watchlist."""
+    ensure_tables_exist()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO ebay_sniper_watchlist (
+                listing_id, card_name, title, listing_url, image_url,
+                auction_end_time, current_bid, shipping_cost, target_bid_mode,
+                custom_max_bid, max_calculated_bid, status, notes
+            ) VALUES (
+                :listing_id, :card_name, :title, :listing_url, :image_url,
+                :auction_end_time, :current_bid, :shipping_cost, :target_bid_mode,
+                :custom_max_bid, :max_calculated_bid, :status, :notes
+            )
+            ON CONFLICT(listing_id) DO UPDATE SET
+                current_bid = excluded.current_bid,
+                auction_end_time = excluded.auction_end_time,
+                target_bid_mode = excluded.target_bid_mode,
+                custom_max_bid = excluded.custom_max_bid,
+                max_calculated_bid = excluded.max_calculated_bid,
+                status = excluded.status,
+                notes = excluded.notes;
+        """, {
+            "listing_id": str(item.get("listing_id", "")).strip(),
+            "card_name": str(item.get("card_name", "Vulpix")).strip(),
+            "title": str(item.get("title", "eBay Auction")).strip(),
+            "listing_url": str(item.get("listing_url", "")).strip(),
+            "image_url": str(item.get("image_url", "https://images.pokemontcg.io/base1/68_hires.png")).strip(),
+            "auction_end_time": str(item.get("auction_end_time", "")).strip(),
+            "current_bid": float(item.get("current_bid", 0.0)),
+            "shipping_cost": float(item.get("shipping_cost", 0.0)),
+            "target_bid_mode": str(item.get("target_bid_mode", "amazing_deal")).strip(),
+            "custom_max_bid": float(item.get("custom_max_bid", 0.0)) if item.get("custom_max_bid") else None,
+            "max_calculated_bid": float(item.get("max_calculated_bid", 0.0)) if item.get("max_calculated_bid") else None,
+            "status": str(item.get("status", "watching")).strip(),
+            "notes": str(item.get("notes", "")).strip(),
+        })
+        return cursor.lastrowid or 0
+
+
+def delete_from_sniper_watchlist(item_id: int) -> None:
+    """Remove an auction from the sniper watchlist."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM ebay_sniper_watchlist WHERE id = ?", (item_id,))
 
 
 # =============================================================
@@ -249,13 +379,10 @@ def update_master_card(card_id: int, updates: Dict[str, Any]) -> None:
 
 
 def load_master_catalog_df() -> pd.DataFrame:
-    """Loads the Master Set catalog with real-time user owned status."""
+    """Loads Master Set catalog with real-time user owned status."""
     ensure_tables_exist()
     with get_db_connection() as conn:
-        df_master = pd.read_sql_query(
-            "SELECT * FROM master_set_catalog ORDER BY release_year ASC, set_name ASC, card_number ASC",
-            conn,
-        )
+        df_master = pd.read_sql_query("SELECT * FROM master_set_catalog ORDER BY release_year ASC, set_name ASC, card_number ASC", conn)
         df_col = pd.read_sql_query("SELECT * FROM my_collection", conn)
 
     if df_master.empty:
@@ -266,12 +393,10 @@ def load_master_catalog_df() -> pd.DataFrame:
     owned_details_list = []
 
     for _, master_row in df_master.iterrows():
-        # Match by master_card_id if available, or normalized match
         m_id = master_row["id"]
         matched = df_col[df_col["master_card_id"] == m_id]
 
         if matched.empty:
-            # Secondary smart match
             m_card = str(master_row["card_name"]).strip().lower()
             m_set = str(master_row["set_name"]).strip().lower()
             m_ed = str(master_row["edition"]).strip().lower()
@@ -344,47 +469,50 @@ def get_master_set_metrics() -> Dict[str, Any]:
 # CSV & Google Sheets Import / Sync Engine
 # =============================================================
 
-def sync_master_catalog_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
+def sync_master_catalog_from_df(
+    df_input: pd.DataFrame, custom_col_map: Optional[Dict[str, str]] = None
+) -> Tuple[int, str, List[str]]:
     """
-    Parses any CSV or Google Sheets dataframe with dynamic header detection.
-    Also automatically adds cards to my_collection if an 'Owned' column indicates ownership!
+    Parses any CSV or Google Sheets dataframe with dynamic or manual column mappings.
+    Returns: (imported_count, summary_message, list_of_diagnostics_or_skipped_reasons).
     """
     ensure_tables_exist()
     if df_input.empty:
-        return 0, "Uploaded spreadsheet is empty."
+        return 0, "Uploaded spreadsheet is empty.", []
 
-    # Dynamic Column Mapping
     col_map = {}
-    for col in df_input.columns:
-        c = str(col).strip().lower().replace("_", " ").replace("-", " ")
-        if any(k in c for k in ["card name", "pokemon", "name"]) and "set" not in c:
-            col_map["card_name"] = col
-        elif any(k in c for k in ["set name", "set", "expansion", "series"]):
-            col_map["set_name"] = col
-        elif any(k in c for k in ["card number", "number", "card #", "no", "#"]):
-            col_map["card_number"] = col
-        elif any(k in c for k in ["release year", "year"]):
-            col_map["release_year"] = col
-        elif any(k in c for k in ["language", "lang"]):
-            col_map["language"] = col
-        elif any(k in c for k in ["edition", "variant", "ed", "type"]):
-            col_map["edition"] = col
-        elif any(k in c for k in ["rarity"]):
-            col_map["rarity"] = col
-        elif any(k in c for k in ["is error", "error"]):
-            col_map["is_error"] = col
-        elif any(k in c for k in ["raw price", "est raw", "raw", "market price", "price"]):
-            col_map["est_raw_price"] = col
-        elif any(k in c for k in ["grade 10", "psa 10", "10 price", "est 10", "slab price"]):
-            col_map["est_grade10_price"] = col
-        elif any(k in c for k in ["image", "url", "picture"]):
-            col_map["image_url"] = col
-        elif any(k in c for k in ["notes", "description", "details", "comments"]):
-            col_map["notes"] = col
-        elif any(k in c for k in ["owned", "have", "in collection", "collected", "status", "got"]):
-            col_map["owned_status"] = col
+    if custom_col_map:
+        col_map = {k: v for k, v in custom_col_map.items() if v and v != "None"}
+    else:
+        for col in df_input.columns:
+            c = str(col).strip().lower().replace("_", " ").replace("-", " ")
+            if any(k in c for k in ["card name", "pokemon", "name"]) and "set" not in c:
+                col_map["card_name"] = col
+            elif any(k in c for k in ["set name", "set", "expansion", "series"]):
+                col_map["set_name"] = col
+            elif any(k in c for k in ["card number", "number", "card #", "no", "#"]):
+                col_map["card_number"] = col
+            elif any(k in c for k in ["release year", "year"]):
+                col_map["release_year"] = col
+            elif any(k in c for k in ["language", "lang"]):
+                col_map["language"] = col
+            elif any(k in c for k in ["edition", "variant", "ed", "type"]):
+                col_map["edition"] = col
+            elif any(k in c for k in ["rarity"]):
+                col_map["rarity"] = col
+            elif any(k in c for k in ["is error", "error"]):
+                col_map["is_error"] = col
+            elif any(k in c for k in ["raw price", "est raw", "raw", "market price", "price"]):
+                col_map["est_raw_price"] = col
+            elif any(k in c for k in ["grade 10", "psa 10", "10 price", "est 10", "slab price"]):
+                col_map["est_grade10_price"] = col
+            elif any(k in c for k in ["image", "url", "picture"]):
+                col_map["image_url"] = col
+            elif any(k in c for k in ["notes", "description", "details", "comments"]):
+                col_map["notes"] = col
+            elif any(k in c for k in ["owned", "have", "in collection", "collected", "status", "got"]):
+                col_map["owned_status"] = col
 
-    # Fallback to column positions if names not found
     cols = list(df_input.columns)
     if "card_name" not in col_map and len(cols) >= 1:
         col_map["card_name"] = cols[0]
@@ -393,6 +521,7 @@ def sync_master_catalog_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
 
     cards_to_upsert = []
     owned_to_add = []
+    diagnostics = []
 
     def parse_float(v, default=0.0):
         if pd.isna(v):
@@ -403,9 +532,10 @@ def sync_master_catalog_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
         except ValueError:
             return default
 
-    for _, row in df_input.iterrows():
+    for idx, row in df_input.iterrows():
         c_name = str(row.get(col_map.get("card_name"), "Vulpix")).strip()
-        if not c_name or c_name.lower() in ["nan", "null", ""]:
+        if not c_name or c_name.lower() in ["nan", "null", "none", ""]:
+            diagnostics.append(f"Row {idx+1}: Skipped because Card Name was blank.")
             continue
 
         raw_p = parse_float(row.get(col_map.get("est_raw_price")), 2.0)
@@ -445,7 +575,6 @@ def sync_master_catalog_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
         }
         cards_to_upsert.append(card_dict)
 
-        # Check if row is flagged as owned in the user's sheet
         owned_flag = str(row.get(col_map.get("owned_status"), "")).strip().lower()
         if owned_flag in ["yes", "true", "1", "owned", "x", "have", "checked"]:
             owned_to_add.append({
@@ -457,7 +586,7 @@ def sync_master_catalog_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
                 "grade_label": "Raw Single",
                 "cert_number": "",
                 "purchase_price": raw_p or 5.0,
-                "purchase_date": "2024-01-01",
+                "purchase_date": datetime.today().strftime("%Y-%m-%d"),
                 "edition": ed_val,
                 "language": lang_val,
                 "is_error": is_err,
@@ -469,7 +598,6 @@ def sync_master_catalog_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
 
     upsert_count = bulk_upsert_master_catalog(cards_to_upsert)
 
-    # If owned cards were detected, add them into collection
     owned_added = 0
     if owned_to_add:
         for oc in owned_to_add:
@@ -479,14 +607,14 @@ def sync_master_catalog_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
     msg = f"Successfully synced {upsert_count} cards into Master Set Catalog!"
     if owned_added > 0:
         msg += f" (Also imported {owned_added} cards marked as Owned into your Vault)."
-    return upsert_count, msg
+    return upsert_count, msg, diagnostics
 
 
-def sync_from_google_sheets_url(sheet_url: str) -> Tuple[int, str]:
+def sync_from_google_sheets_url(sheet_url: str) -> Tuple[int, str, List[str]]:
     """Downloads public Google Sheets CSV export and syncs into database."""
     match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", sheet_url)
     if not match:
-        return 0, "Invalid Google Sheets URL format. Please provide a standard Google Sheets link."
+        return 0, "Invalid Google Sheets URL format. Please provide a standard Google Sheets link.", []
 
     doc_id = match.group(1)
     gid_match = re.search(r"[#&?]gid=([0-9]+)", sheet_url)
@@ -502,10 +630,10 @@ def sync_from_google_sheets_url(sheet_url: str) -> Tuple[int, str]:
         return sync_master_catalog_from_df(df)
     except urllib.error.HTTPError as e:
         if e.code in [401, 403]:
-            return 0, "Google Sheets Permission Error (401/403): Sheet is Restricted. Please click 'Share' in Google Sheets and select 'Anyone with the link can view'."
-        return 0, f"HTTP Error fetching Google Sheet: {e}"
+            return 0, "Google Sheets Permission Error (401/403): Sheet is Restricted. Please click 'Share' in Google Sheets and select 'Anyone with the link can view'.", []
+        return 0, f"HTTP Error fetching Google Sheet: {e}", []
     except Exception as e:
-        return 0, f"Error processing Google Sheet: {e}"
+        return 0, f"Error processing Google Sheet: {e}", []
 
 
 def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
@@ -574,7 +702,7 @@ def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
             "grade_label": str(row.get(col_map.get("grade_label"), "Gem Mint" if not is_raw else "Raw Single")).strip(),
             "cert_number": str(row.get(col_map.get("cert_number"), "")).strip(),
             "purchase_price": price_num,
-            "purchase_date": str(row.get(col_map.get("purchase_date"), "2024-01-01")).strip()[:10],
+            "purchase_date": str(row.get(col_map.get("purchase_date"), datetime.today().strftime("%Y-%m-%d"))).strip()[:10],
             "edition": str(row.get(col_map.get("edition"), "Unlimited")).strip(),
             "language": str(row.get(col_map.get("language"), "English")).strip(),
             "is_error": 0,
@@ -587,6 +715,45 @@ def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
         count += 1
 
     return count, f"Successfully imported {count} cards into your Vault collection!"
+
+
+def get_csv_template_bytes() -> bytes:
+    """Generates a clean starter CSV template bytes."""
+    df_template = pd.DataFrame([
+        {
+            "Card Name": "Vulpix",
+            "Set Name": "Base Set",
+            "Card Number": "68/102",
+            "Release Year": 1999,
+            "Language": "English",
+            "Edition": "1st Edition",
+            "Rarity": "Common",
+            "Is Error": "No",
+            "Est Raw Price": 8.00,
+            "Est Grade 10 Price": 240.00,
+            "Owned": "Yes",
+            "Image URL": "https://images.pokemontcg.io/base1/68_hires.png",
+            "Notes": "1st Edition Base Set.",
+        },
+        {
+            "Card Name": "Erika's Vulpix",
+            "Set Name": "Gym Heroes",
+            "Card Number": "49/132",
+            "Release Year": 2000,
+            "Language": "English",
+            "Edition": "Unlimited",
+            "Rarity": "Uncommon",
+            "Is Error": "No",
+            "Est Raw Price": 2.50,
+            "Est Grade 10 Price": 45.00,
+            "Owned": "No",
+            "Image URL": "https://images.pokemontcg.io/gym1/49_hires.png",
+            "Notes": "Gym Heroes Vulpix.",
+        }
+    ])
+    output = io.StringIO()
+    df_template.to_csv(output, index=False)
+    return output.getvalue().encode("utf-8")
 
 
 # =============================================================
@@ -651,7 +818,6 @@ def add_card_to_collection(card: Dict[str, Any]) -> int:
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
-        # Try to resolve master_card_id if not present
         master_id = card.get("master_card_id")
         if not master_id:
             cursor.execute("""
@@ -684,7 +850,7 @@ def add_card_to_collection(card: Dict[str, Any]) -> int:
             "grade_label": card.get("grade_label", "Gem Mint"),
             "cert_number": card.get("cert_number", ""),
             "purchase_price": card.get("purchase_price", 0.0),
-            "purchase_date": card.get("purchase_date", "2024-01-01"),
+            "purchase_date": card.get("purchase_date", datetime.today().strftime("%Y-%m-%d")),
             "edition": card.get("edition", "Unlimited"),
             "language": card.get("language", "English"),
             "is_error": 1 if card.get("is_error") else 0,

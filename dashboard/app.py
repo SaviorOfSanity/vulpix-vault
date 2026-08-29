@@ -1,7 +1,7 @@
 """
 The Vulpix Vault - Streamlit Web Dashboard
-Master Set Completion Tracker, Card/List View Modes, Card Editing,
-Google Sheets & CSV Bulk Import, and Multi-Tier AI Deal Radar.
+Master Set Completion Tracker, eBay Sniper & Watchlist, 1-Click Live eBay Search,
+Interactive CSV Column Mapper & Diagnostics, and Multi-Tier AI Deal Radar.
 """
 
 import os
@@ -12,11 +12,16 @@ import streamlit as st
 
 from db_utils import (
     add_card_to_collection,
+    add_to_sniper_watchlist,
     bulk_import_collection_from_df,
     delete_card_from_collection,
+    delete_from_sniper_watchlist,
+    generate_ebay_search_url,
+    get_csv_template_bytes,
     get_db_path,
     get_master_set_metrics,
     get_portfolio_metrics,
+    get_sniper_watchlist_df,
     load_collection_df,
     load_deals_df,
     load_market_sales_df,
@@ -46,6 +51,7 @@ master_metrics = get_master_set_metrics()
 df_col = load_collection_df()
 df_master = load_master_catalog_df()
 df_market = load_market_sales_df()
+df_sniper = get_sniper_watchlist_df()
 
 # -------------------------------------------------------------
 # Top KPI Header Metrics
@@ -106,9 +112,9 @@ with kpi5:
     st.markdown(
         f"""
         <div class="kpi-card">
-            <div class="kpi-label">AI Deal Radar</div>
-            <div class="kpi-value" style="color: #ff7a45;">{port_metrics['amazing_deals_count'] + port_metrics['great_deals_count']}</div>
-            <div style="color: #ff7a45; font-size: 0.82rem; font-weight: 600;">🔥 {port_metrics['amazing_deals_count']} Amazing • ⭐ {port_metrics['great_deals_count']} Great</div>
+            <div class="kpi-label">Active Sniper & Deals</div>
+            <div class="kpi-value" style="color: #ff7a45;">{len(df_sniper)} / {port_metrics['amazing_deals_count'] + port_metrics['great_deals_count']}</div>
+            <div style="color: #ff7a45; font-size: 0.82rem; font-weight: 600;">🎯 {len(df_sniper)} Snipers • 🔥 {port_metrics['amazing_deals_count']} Amazing</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -119,11 +125,12 @@ st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 # -------------------------------------------------------------
 # Main Navigation Tabs
 # -------------------------------------------------------------
-tab_vault, tab_master, tab_trends, tab_deals, tab_settings = st.tabs([
+tab_vault, tab_master, tab_sniper, tab_trends, tab_deals, tab_settings = st.tabs([
     "🦊 My Graded & Raw Vault",
     "📜 Master Set Checklist",
+    "🎯 eBay Sniper Watchlist",
     "📈 Market Price Trends",
-    "🎯 AI Deal Radar",
+    "🔥 AI Deal Radar",
     "⚙️ System Controls & Sync",
 ])
 
@@ -133,7 +140,7 @@ tab_vault, tab_master, tab_trends, tab_deals, tab_settings = st.tabs([
 with tab_vault:
     st.markdown("### 🏆 Personal Vulpix Collection")
 
-    # Form: Add Card or Bulk CSV Import
+    # Add Card or Bulk CSV Import
     col_v_act1, col_v_act2 = st.columns([1, 1])
 
     with col_v_act1:
@@ -233,6 +240,17 @@ with tab_vault:
                     error_badge = '<span class="badge-error">⚠️ ERROR</span>' if row.get("is_error") == 1 else ""
                     img_src = row["image_url"] if row["image_url"] else "https://images.pokemontcg.io/base1/68_hires.png"
 
+                    # Generate live eBay link
+                    ebay_search_link = generate_ebay_search_url(
+                        card_name=row["card_name"],
+                        set_name=row["set_name"],
+                        card_number=row["card_number"],
+                        edition=row.get("edition", ""),
+                        language=row.get("language", "English"),
+                        is_raw=bool(row.get("is_raw", 0)),
+                        grade_tier=row.get("grade_label"),
+                    )
+
                     st.markdown(
                         f"""
                         <div class="slab-box">
@@ -267,8 +285,13 @@ with tab_vault:
                                     <span style="color: {gain_color}; font-weight: 700;">{gain_sign}${gain:,.2f} ({gain_sign}{roi:.1f}%)</span>
                                 </div>
                             </div>
-                            <div style="margin-top: 8px; font-size: 0.72rem; color: #666; text-align: right;">
-                                {f"Cert: {row['cert_number']}" if row.get('cert_number') else 'Raw'} • Acquired: {row['purchase_date']}
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                                <a href="{ebay_search_link}" target="_blank" class="btn-ebay">
+                                    🔍 Live eBay Prices →
+                                </a>
+                                <span style="font-size: 0.72rem; color: #666;">
+                                    {f"Cert: {row['cert_number']}" if row.get('cert_number') else 'Raw'}
+                                </span>
                             </div>
                         </div>
                         """,
@@ -340,7 +363,7 @@ with tab_vault:
             )
 
 # -------------------------------------------------------------
-# TAB 2: Master Set Checklist & Google Sheets Sync
+# TAB 2: Master Set Checklist & Google Sheets / CSV Column Mapper
 # -------------------------------------------------------------
 with tab_master:
     st.markdown("### 📜 Master Set Checklist & Catalog")
@@ -421,6 +444,24 @@ with tab_master:
                 err_badge = '<span class="badge-error" style="font-size: 0.68rem;">⚠️ ERROR</span>' if row["is_error"] == 1 else ""
                 img_src = row["image_url"] if row["image_url"] else "https://images.pokemontcg.io/base1/68_hires.png"
 
+                # 1-Click Search URLs for Raw and Grade 10
+                raw_ebay_url = generate_ebay_search_url(
+                    card_name=row["card_name"],
+                    set_name=row["set_name"],
+                    card_number=row["card_number"],
+                    edition=row["edition"],
+                    language=row["language"],
+                    is_raw=True,
+                )
+                g10_ebay_url = generate_ebay_search_url(
+                    card_name=row["card_name"],
+                    set_name=row["set_name"],
+                    card_number=row["card_number"],
+                    edition=row["edition"],
+                    language=row["language"],
+                    grade_tier="Gem Mint 10",
+                )
+
                 st.markdown(
                     f"""
                     <div class="slab-box" style="padding: 12px; margin-bottom: 14px;">
@@ -442,6 +483,14 @@ with tab_master:
                                 <span style="color: #8c8d9a;">Est 10:</span>
                                 <span style="color: #f59e0b; font-weight: 700;">${row['est_grade10_price']:,.2f}</span>
                             </div>
+                        </div>
+                        <div style="display: flex; gap: 4px; margin-bottom: 6px;">
+                            <a href="{raw_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 4px;">
+                                🔍 Raw eBay
+                            </a>
+                            <a href="{g10_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 4px; background: linear-gradient(135deg, #f59e0b, #d97706);">
+                                💎 PSA 10 eBay
+                            </a>
                         </div>
                     </div>
                     """,
@@ -540,7 +589,7 @@ with tab_master:
         )
 
     st.markdown("---")
-    st.markdown("#### 🔄 Sync 200+ Master Cards from Google Sheet or CSV")
+    st.markdown("#### 🔄 Sync 200+ Master Cards with Interactive Column Mapper")
 
     sync_col1, sync_col2 = st.columns(2)
     with sync_col1:
@@ -551,29 +600,180 @@ with tab_master:
         )
         if st.button("🔄 Sync Google Sheet into Catalog"):
             with st.spinner("Fetching and importing Google Sheet..."):
-                count, msg = sync_from_google_sheets_url(sheet_url_input)
+                count, msg, diags = sync_from_google_sheets_url(sheet_url_input)
                 if count > 0:
                     st.success(msg)
                     st.rerun()
                 else:
                     st.warning(msg)
-                    st.info("💡 **Tip:** If the sheet is Restricted, download it as CSV (File → Download → CSV) and upload it on the right.")
+                    st.info("💡 **Tip:** Set your Google Sheet share setting to *'Anyone with the link can view'*, or download as CSV and upload on the right.")
 
     with sync_col2:
-        st.markdown("##### 📁 Upload Master Catalog CSV File")
-        uploaded_csv = st.file_uploader("Choose a CSV file", type=["csv"], key="master_csv_up")
+        st.markdown("##### 📁 Upload CSV with Interactive Column Mapper")
+        st.download_button(
+            "📥 Download Starter CSV Template",
+            data=get_csv_template_bytes(),
+            file_name="vulpix_master_set_template.csv",
+            mime="text/csv",
+        )
+        uploaded_csv = st.file_uploader("Choose your CSV file", type=["csv"], key="master_csv_up")
         if uploaded_csv is not None:
-            if st.button("📥 Import Uploaded CSV into Master Set"):
-                try:
-                    df_up = pd.read_csv(uploaded_csv)
-                    count, msg = sync_master_catalog_from_df(df_up)
+            try:
+                df_up = pd.read_csv(uploaded_csv)
+                st.markdown(f"**Found {len(df_up)} rows in CSV. Preview:**")
+                st.dataframe(df_up.head(3), use_container_width=True)
+
+                st.markdown("##### 🎛️ Confirm / Map Column Headers:")
+                csv_cols = ["None"] + list(df_up.columns)
+                
+                # Smart fuzzy guess
+                def guess_col(keywords, default_idx=0):
+                    for idx, c in enumerate(csv_cols):
+                        c_low = c.lower()
+                        if any(k in c_low for k in keywords):
+                            return idx
+                    return default_idx
+
+                map_c1, map_c2, map_c3 = st.columns(3)
+                with map_c1:
+                    map_card_name = st.selectbox("Card Name Column*", csv_cols, index=guess_col(["card name", "name", "pokemon"]))
+                    map_set_name = st.selectbox("Set / Expansion Column*", csv_cols, index=guess_col(["set name", "set", "expansion"]))
+                    map_card_num = st.selectbox("Card # Column", csv_cols, index=guess_col(["card number", "number", "card #", "#", "no"]))
+                with map_c2:
+                    map_edition = st.selectbox("Edition Column", csv_cols, index=guess_col(["edition", "variant", "ed"]))
+                    map_language = st.selectbox("Language Column", csv_cols, index=guess_col(["language", "lang", "region"]))
+                    map_is_error = st.selectbox("Error Flag Column", csv_cols, index=guess_col(["error", "is error"]))
+                with map_c3:
+                    map_raw_price = st.selectbox("Est Raw Price Column", csv_cols, index=guess_col(["raw price", "raw", "price", "market"]))
+                    map_g10_price = st.selectbox("Est Grade 10 Price Column", csv_cols, index=guess_col(["grade 10", "psa 10", "10 price", "est 10"]))
+                    map_owned = st.selectbox("Owned Status Column", csv_cols, index=guess_col(["owned", "have", "status"]))
+
+                if st.button("🚀 Import Mapped CSV into Master Catalog"):
+                    custom_map = {
+                        "card_name": map_card_name,
+                        "set_name": map_set_name,
+                        "card_number": map_card_num,
+                        "edition": map_edition,
+                        "language": map_language,
+                        "is_error": map_is_error,
+                        "est_raw_price": map_raw_price,
+                        "est_grade10_price": map_g10_price,
+                        "owned_status": map_owned,
+                    }
+                    count, msg, diags = sync_master_catalog_from_df(df_up, custom_col_map=custom_map)
                     st.success(msg)
+                    if diags:
+                        with st.expander("Diagnostic Import Details"):
+                            for d in diags[:20]:
+                                st.write(d)
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Failed to parse CSV: {e}")
+
+            except Exception as e:
+                st.error(f"Failed to parse CSV: {e}")
 
 # -------------------------------------------------------------
-# TAB 3: Market Price Trends
+# TAB 3: eBay Sniper & Watchlist
+# -------------------------------------------------------------
+with tab_sniper:
+    st.markdown("### 🎯 eBay Sniper & Auction Watchlist")
+    st.markdown(
+        "Track active eBay auctions, set auto-bid caps based on **Amazing Deal** or **Great Deal** AI thresholds, and receive urgent push notifications before auctions close."
+    )
+
+    with st.expander("➕ Add Active eBay Auction to Sniper Watchlist", expanded=False):
+        with st.form("add_sniper_form", clear_on_submit=True):
+            sn1, sn2 = st.columns(2)
+            with sn1:
+                sn_card = st.selectbox("Target Master Card", ["Vulpix"] + [f"{r['card_name']} - {r['set_name']} ({r['edition']})" for _, r in df_master.iterrows()])
+                sn_title = st.text_input("Auction Title", placeholder="e.g. 1999 Base Set 1st Edition Vulpix PSA 10")
+                sn_url = st.text_input("eBay Listing URL*", placeholder="https://www.ebay.com/itm/1234567890")
+            with sn2:
+                sn_bid = st.number_input("Current Bid ($)", min_value=0.0, value=15.0, step=5.0)
+                sn_ship = st.number_input("Shipping Cost ($)", min_value=0.0, value=4.99, step=1.0)
+                sn_strat = st.selectbox("Max Bid Strategy", ["🔥 Amazing Deal Cap (30% Off Fair Value)", "⭐ Great Deal Cap (15% Off Fair Value)", "Custom Max Dollar Amount"])
+                sn_custom_max = st.number_input("Custom Max Bid ($) (if selected)", min_value=0.0, value=50.0, step=5.0)
+
+            sn_end = st.text_input("Auction End Date/Time (optional)", placeholder="2026-08-30 18:00:00")
+            sn_notes = st.text_area("Notes", placeholder="Seller feedback, condition checks, or subgrades...")
+
+            if st.form_submit_button("Add to Sniper Watchlist"):
+                if sn_url:
+                    item_id_match = re.search(r"/itm/(?:[a-zA-Z0-9\-_]+/)?([0-9]{9,15})", sn_url)
+                    listing_id = item_id_match.group(1) if item_id_match else f"manual_snip_{int(datetime.now().timestamp())}"
+
+                    add_to_sniper_watchlist({
+                        "listing_id": listing_id,
+                        "card_name": sn_card.split(" - ")[0],
+                        "title": sn_title or f"Auction for {sn_card}",
+                        "listing_url": sn_url,
+                        "image_url": "https://images.pokemontcg.io/base1/68_hires.png",
+                        "auction_end_time": sn_end or datetime.today().strftime("%Y-%m-%d %H:%M:%S"),
+                        "current_bid": sn_bid,
+                        "shipping_cost": sn_ship,
+                        "target_bid_mode": "custom_max" if "Custom" in sn_strat else ("amazing_deal" if "Amazing" in sn_strat else "great_deal"),
+                        "custom_max_bid": sn_custom_max,
+                        "status": "watching",
+                        "notes": sn_notes,
+                    })
+                    st.success("Added to Sniper Watchlist!")
+                    st.rerun()
+                else:
+                    st.error("Please enter an eBay listing URL.")
+
+    # Active Watchlist Display
+    if df_sniper.empty:
+        st.info("Your Sniper Watchlist is currently empty. Add auctions using the form above!")
+    else:
+        st.markdown(f"**Tracking {len(df_sniper)} active auction targets:**")
+        for _, sn in df_sniper.iterrows():
+            curr_bid = float(sn["current_bid"])
+            max_bid = float(sn.get("custom_max_bid") or 100.0)
+            is_under = curr_bid <= max_bid
+            badge_sn = '<span class="sniper-badge-ok">🟢 BID UNDER CAP</span>' if is_under else '<span class="sniper-badge-alert">🔴 EXCEEDS MAX CAP</span>'
+
+            with st.container():
+                st.markdown(
+                    f"""
+                    <div class="sniper-card">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                {badge_sn}
+                                <span style="font-weight: 800; font-size: 1.1rem; color: #fff; margin-left: 8px;">{sn['title']}</span>
+                            </div>
+                            <div>
+                                <span style="color: #8c8d9a; font-size: 0.82rem;">Current Bid: </span>
+                                <span style="font-size: 1.3rem; font-weight: 800; color: #4ade80;">${curr_bid:,.2f}</span>
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; background: #111217; padding: 10px 14px; border-radius: 8px; margin: 10px 0; font-size: 0.85rem;">
+                            <div>
+                                <span style="color: #8c8d9a;">Target Card:</span> <strong style="color: #fff;">{sn['card_name']}</strong>
+                            </div>
+                            <div>
+                                <span style="color: #8c8d9a;">Max Bid Cap:</span> <strong style="color: #ffd591;">${max_bid:,.2f}</strong>
+                            </div>
+                            <div>
+                                <span style="color: #8c8d9a;">Auction Closes:</span> <strong style="color: #f59e0b;">{sn['auction_end_time'] or 'Ongoing'}</strong>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #94a3b8; font-size: 0.8rem;">{sn['notes'] or ''}</span>
+                            <div style="display: flex; gap: 8px;">
+                                <a href="{sn['listing_url']}" target="_blank" class="btn-ebay" style="background: linear-gradient(135deg, #ef4444, #dc2626);">
+                                    ⚡ Place Bid on eBay →
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button("🗑️ Remove Target", key=f"del_snip_{sn['id']}"):
+                    delete_from_sniper_watchlist(sn["id"])
+                    st.rerun()
+
+# -------------------------------------------------------------
+# TAB 4: Market Price Trends
 # -------------------------------------------------------------
 with tab_trends:
     st.markdown("### 📈 Market Sales & Price Analytics")
@@ -655,12 +855,12 @@ with tab_trends:
             st.warning("No sales matched the selected filters.")
 
 # -------------------------------------------------------------
-# TAB 4: AI Deal Radar
+# TAB 5: AI Deal Radar
 # -------------------------------------------------------------
 with tab_deals:
-    st.markdown("### 🎯 Google Gemini AI Deal Radar")
+    st.markdown("### 🔥 Google Gemini AI Deal Radar")
     st.markdown(
-        "Automated appraisal engine scans every scraped eBay listing against the last 10 comparable sales to flag undervalued cards across Grade 10 slabs and Raw singles."
+        "Automated appraisal engine scans every scraped eBay listing against recent sales to flag deals across Grade 10 slabs and Raw singles."
     )
 
     d_col1, d_col2 = st.columns(2)
@@ -755,15 +955,15 @@ with tab_deals:
                 )
 
 # -------------------------------------------------------------
-# TAB 5: System Controls & Diagnostics
+# TAB 6: System Controls & Gotify Sync
 # -------------------------------------------------------------
 with tab_settings:
-    st.markdown("### ⚙️ System Controls & Health")
+    st.markdown("### ⚙️ System Controls & Diagnostics")
 
     col_s1, col_s2 = st.columns(2)
 
     with col_s1:
-        st.markdown("#### 🗄️ Database & Catalog Diagnostics")
+        st.markdown("#### 🗄️ Database Diagnostics")
         db_path = get_db_path()
         file_size_kb = round(os.path.getsize(db_path) / 1024, 2) if os.path.exists(db_path) else 0
 
@@ -771,46 +971,47 @@ with tab_settings:
         st.markdown(f"- **Database File Size:** `{file_size_kb} KB`")
         st.markdown(f"- **Master Set Catalog:** `{master_metrics['total_cards']} unique cards`")
         st.markdown(f"- **Personal Vault Records:** `{len(df_col)} items`")
+        st.markdown(f"- **Sniper Watchlist:** `{len(df_sniper)} active targets`")
         st.markdown(f"- **Historical Sales Records:** `{len(df_market)} listings`")
 
     with col_s2:
-        st.markdown("#### 🔔 Gotify Push Alerts")
-        gotify_url = os.getenv("GOTIFY_URL", "http://gotify:80")
-        st.markdown(f"- **Gotify Server URL:** `{gotify_url}`")
-        st.markdown(f"- **Alert Levels:** `Priority 8 (Amazing Deals), Priority 6 (Great Deals)`")
+        st.markdown("#### 🔔 Gotify Push Notification Settings")
+        gotify_url = os.getenv("GOTIFY_URL", "http://10.0.0.48")
+        st.markdown(f"- **Active Gotify URL:** `{gotify_url}`")
+        st.markdown(f"- **Alert Levels:** `Priority 10 (Sniper Urgency), Priority 8 (Amazing Deals), Priority 6 (Great Deals)`")
 
-        if st.button("🔔 Send Test Push Alert"):
+        if st.button("🔔 Send Test Push Alert to Gotify"):
             import sys
             sys.path.append(os.path.join(os.path.dirname(__file__), "..", "scraper"))
             try:
                 from notifier import send_gotify_alert
                 test_listing = {
-                    "listing_id": "test_alert_002",
-                    "title": "Light Vulpix Neo Destiny 1st Edition CGC Pristine 10 (TEST ALERT)",
-                    "card_name": "Light Vulpix",
-                    "grading_company": "CGC",
+                    "listing_id": "test_alert_003",
+                    "title": "Vulpix 1st Edition PSA 10 (TEST GOTIFY PUSH)",
+                    "card_name": "Vulpix",
+                    "grading_company": "PSA",
                     "grade": 10.0,
-                    "grade_label": "Pristine 10",
+                    "grade_label": "Gem Mint 10",
                     "condition_type": "Graded",
                     "edition": "1st Edition",
                     "language": "English",
-                    "total_price": 125.00,
-                    "price": 125.00,
+                    "total_price": 99.00,
+                    "price": 99.00,
                     "listing_url": "https://www.ebay.com",
                 }
                 test_appraisal = {
                     "deal_rating": "amazing_deal",
-                    "fair_value_estimate": 280.00,
-                    "discount_percentage": 55.4,
-                    "rationale": "Pristine 10 gold label copy listed at less than standard Gem Mint fair market price.",
+                    "fair_value_estimate": 240.00,
+                    "discount_percentage": 58.7,
+                    "rationale": f"Test push alert connecting to Gotify server at {gotify_url}.",
                 }
                 res = send_gotify_alert(test_listing, test_appraisal)
                 if res:
-                    st.success("Test notification dispatched to Gotify!")
+                    st.success(f"Test notification successfully dispatched to {gotify_url}!")
                 else:
-                    st.warning("Could not reach Gotify. Ensure GOTIFY_APP_TOKEN is configured in .env.")
+                    st.warning(f"Could not reach Gotify at {gotify_url}. Check GOTIFY_APP_TOKEN in .env.")
             except Exception as e:
-                st.warning(f"Could not load notifier module: {e}")
+                st.warning(f"Could not dispatch Gotify alert: {e}")
 
     st.markdown("---")
     st.markdown("#### ⚡ Trigger Multi-Query eBay Scrape Now")
