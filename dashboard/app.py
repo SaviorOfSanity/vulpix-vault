@@ -1,18 +1,18 @@
 """
 The Vulpix Vault - Streamlit Web Dashboard
-Master Set Completion Tracker, Special Grades (Pristine 10, Black Label 10),
-Google Sheets Catalog Sync, and Multi-Tier AI Deal Radar.
+Master Set Completion Tracker, Card/List View Modes, Card Editing,
+Google Sheets & CSV Bulk Import, and Multi-Tier AI Deal Radar.
 """
 
 import os
 from datetime import datetime
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 
 from db_utils import (
     add_card_to_collection,
+    bulk_import_collection_from_df,
     delete_card_from_collection,
     get_db_path,
     get_master_set_metrics,
@@ -23,10 +23,13 @@ from db_utils import (
     load_master_catalog_df,
     sync_from_google_sheets_url,
     sync_master_catalog_from_df,
+    update_card_image_override,
+    update_collection_card,
+    update_master_card,
 )
 from styles import apply_custom_styles, get_grading_badge_html, render_header
 
-# Set Page Config
+# Set Streamlit Page Configuration
 st.set_page_config(
     page_title="The Vulpix Vault",
     page_icon="🦊",
@@ -37,7 +40,7 @@ st.set_page_config(
 apply_custom_styles()
 render_header()
 
-# Load Core Analytics
+# Load Core Data
 port_metrics = get_portfolio_metrics()
 master_metrics = get_master_set_metrics()
 df_col = load_collection_df()
@@ -130,129 +133,211 @@ tab_vault, tab_master, tab_trends, tab_deals, tab_settings = st.tabs([
 with tab_vault:
     st.markdown("### 🏆 Personal Vulpix Collection")
 
-    # Add Slab / Raw Card Form
-    with st.expander("➕ Add New Card or Slab to Vault", expanded=False):
-        with st.form("add_card_vault_form", clear_on_submit=True):
-            f1, f2, f3 = st.columns(3)
-            with f1:
-                f_card_name = st.text_input("Card Name", placeholder="e.g. Vulpix or Erika's Vulpix")
-                f_set_name = st.text_input("Set Name", placeholder="e.g. Base Set or Gym Heroes")
-                f_card_num = st.text_input("Card Number", placeholder="e.g. 68/102")
-                f_edition = st.selectbox("Edition / Variant", ["Unlimited", "1st Edition", "Shadowless", "Reverse Holo", "Promo", "1st Print"])
-            with f2:
-                f_condition = st.radio("Condition", ["Graded Slab", "Raw Single"], horizontal=True)
-                f_is_raw = 1 if f_condition == "Raw Single" else 0
-                f_co = st.selectbox("Grading Company", ["PSA", "CGC", "BGS", "ARS", "ACE", "SGC", "RAW"]) if not f_is_raw else "RAW"
-                f_grade_label = st.selectbox("Grade Tier", ["Gem Mint", "Pristine 10", "Black Label 10", "Mint", "Near Mint", "Raw Single"])
-                f_grade_num = st.number_input("Numerical Grade", min_value=1.0, max_value=10.0, value=10.0, step=0.5) if not f_is_raw else 0.0
-                f_cert = st.text_input("Certification Number", placeholder="e.g. 48291039") if not f_is_raw else ""
-            with f3:
-                f_lang = st.selectbox("Language", ["English", "Japanese", "German", "French", "Italian", "Spanish", "Korean", "Chinese"])
-                f_price = st.number_input("Purchase Price ($ USD)", min_value=0.0, value=25.0, step=5.0)
-                f_date = st.date_input("Purchase Date", value=datetime.today())
-                f_img = st.text_input("Card Image URL (optional)", placeholder="https://...")
+    # Form: Add Card or Bulk CSV Import
+    col_v_act1, col_v_act2 = st.columns([1, 1])
 
-            st.markdown("---")
-            e1, e2 = st.columns([1, 3])
-            with e1:
-                f_is_err = st.checkbox("⚠️ Is this an Error Card?")
-            with e2:
-                f_err_type = st.text_input("Error Description (if applicable)", placeholder="e.g. HP 50 Error, No Rarity Symbol, Miscut...")
+    with col_v_act1:
+        with st.expander("➕ Add Single Card or Slab to Vault", expanded=False):
+            with st.form("add_card_vault_form", clear_on_submit=True):
+                f1, f2, f3 = st.columns(3)
+                with f1:
+                    f_card_name = st.text_input("Card Name", placeholder="e.g. Vulpix or Erika's Vulpix")
+                    f_set_name = st.text_input("Set Name", placeholder="e.g. Base Set or Gym Heroes")
+                    f_card_num = st.text_input("Card Number", placeholder="e.g. 68/102")
+                    f_edition = st.selectbox("Edition / Variant", ["Unlimited", "1st Edition", "Shadowless", "Reverse Holo", "Promo", "1st Print"])
+                with f2:
+                    f_condition = st.radio("Condition", ["Graded Slab", "Raw Single"], horizontal=True)
+                    f_is_raw = 1 if f_condition == "Raw Single" else 0
+                    f_co = st.selectbox("Grading Company", ["PSA", "CGC", "BGS", "ARS", "ACE", "SGC", "RAW"]) if not f_is_raw else "RAW"
+                    f_grade_label = st.selectbox("Grade Tier", ["Gem Mint", "Pristine 10", "Black Label 10", "Mint", "Near Mint", "Raw Single"])
+                    f_grade_num = st.number_input("Numerical Grade", min_value=1.0, max_value=10.0, value=10.0, step=0.5) if not f_is_raw else 0.0
+                    f_cert = st.text_input("Certification Number", placeholder="e.g. 48291039") if not f_is_raw else ""
+                with f3:
+                    f_lang = st.selectbox("Language", ["English", "Japanese", "German", "French", "Italian", "Spanish", "Korean", "Chinese"])
+                    f_price = st.number_input("Purchase Price ($ USD)", min_value=0.0, value=25.0, step=5.0)
+                    f_date = st.date_input("Purchase Date", value=datetime.today())
+                    f_img = st.text_input("Card Image URL (optional)", placeholder="https://...")
 
-            f_notes = st.text_area("Collector Notes", placeholder="Subgrades, provenance, or condition details...")
+                st.markdown("---")
+                e1, e2 = st.columns([1, 3])
+                with e1:
+                    f_is_err = st.checkbox("⚠️ Is Error Card?")
+                with e2:
+                    f_err_type = st.text_input("Error Type (if applicable)", placeholder="e.g. HP 50 Error, No Rarity Symbol...")
 
-            submit_card = st.form_submit_button("Save Card to Vault")
-            if submit_card:
-                if f_card_name:
-                    add_card_to_collection({
-                        "card_name": f_card_name,
-                        "set_name": f_set_name or "Unknown Set",
-                        "card_number": f_card_num or "",
-                        "grading_company": f_co,
-                        "grade": f_grade_num,
-                        "grade_label": f_grade_label,
-                        "cert_number": f_cert,
-                        "purchase_price": f_price,
-                        "purchase_date": f_date.strftime("%Y-%m-%d"),
-                        "edition": f_edition,
-                        "language": f_lang,
-                        "is_error": 1 if f_is_err else 0,
-                        "error_type": f_err_type if f_is_err else None,
-                        "is_raw": f_is_raw,
-                        "image_url": f_img or "https://images.pokemontcg.io/base1/68_hires.png",
-                        "notes": f_notes or "",
-                    })
-                    st.success(f"Added {f_card_name} ({f_edition} - {f_grade_label}) to Vault!")
-                    st.rerun()
-                else:
-                    st.error("Please provide a Card Name.")
+                f_notes = st.text_area("Collector Notes", placeholder="Subgrades, provenance, or condition details...")
 
-    # Grid Display of Slabs & Raw Cards
+                submit_card = st.form_submit_button("Save Card to Vault")
+                if submit_card:
+                    if f_card_name:
+                        add_card_to_collection({
+                            "card_name": f_card_name,
+                            "set_name": f_set_name or "Unknown Set",
+                            "card_number": f_card_num or "",
+                            "grading_company": f_co,
+                            "grade": f_grade_num,
+                            "grade_label": f_grade_label,
+                            "cert_number": f_cert,
+                            "purchase_price": f_price,
+                            "purchase_date": f_date.strftime("%Y-%m-%d"),
+                            "edition": f_edition,
+                            "language": f_lang,
+                            "is_error": 1 if f_is_err else 0,
+                            "error_type": f_err_type if f_is_err else None,
+                            "is_raw": f_is_raw,
+                            "image_url": f_img or "https://images.pokemontcg.io/base1/68_hires.png",
+                            "notes": f_notes or "",
+                        })
+                        st.success(f"Added {f_card_name} ({f_edition} - {f_grade_label}) to Vault!")
+                        st.rerun()
+                    else:
+                        st.error("Please provide a Card Name.")
+
+    with col_v_act2:
+        with st.expander("📥 Bulk Import Owned Cards (CSV File)", expanded=False):
+            st.markdown("Upload a CSV list of cards in your collection to import them in bulk:")
+            vault_csv = st.file_uploader("Upload Collection CSV", type=["csv"], key="vault_csv_up")
+            if vault_csv is not None:
+                if st.button("📥 Import Collection CSV"):
+                    try:
+                        df_v_csv = pd.read_csv(vault_csv)
+                        cnt, v_msg = bulk_import_collection_from_df(df_v_csv)
+                        st.success(v_msg)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error importing CSV: {e}")
+
+    # View Mode Selector
+    v_mode_col1, v_mode_col2 = st.columns([2, 1])
+    with v_mode_col2:
+        vault_view_mode = st.radio("Display Layout:", ["🃏 Card Grid View", "📋 Table / List View"], horizontal=True, key="vault_v_mode")
+
     if df_col.empty:
-        st.info("Your vault is empty. Add your first card or slab above!")
+        st.info("Your vault is empty. Add cards manually or bulk-import a CSV above!")
     else:
-        cols = st.columns(3)
-        for idx, row in df_col.iterrows():
-            col_target = cols[idx % 3]
-            with col_target:
-                badge_html = get_grading_badge_html(
-                    row.get("grading_company", "PSA"),
-                    row.get("grade", 10),
-                    row.get("grade_label", "Gem Mint"),
-                    row.get("is_raw", 0),
-                )
-                gain = row.get("unrealized_gain", 0.0)
-                roi = row.get("roi_percent", 0.0)
-                gain_color = "#4ade80" if gain >= 0 else "#f87171"
-                gain_sign = "+" if gain >= 0 else ""
+        if "Card Grid" in vault_view_mode:
+            cols = st.columns(3)
+            for idx, row in df_col.iterrows():
+                col_target = cols[idx % 3]
+                with col_target:
+                    badge_html = get_grading_badge_html(
+                        row.get("grading_company", "PSA"),
+                        row.get("grade", 10),
+                        row.get("grade_label", "Gem Mint"),
+                        row.get("is_raw", 0),
+                    )
+                    gain = row.get("unrealized_gain", 0.0)
+                    roi = row.get("roi_percent", 0.0)
+                    gain_color = "#4ade80" if gain >= 0 else "#f87171"
+                    gain_sign = "+" if gain >= 0 else ""
+                    error_badge = '<span class="badge-error">⚠️ ERROR</span>' if row.get("is_error") == 1 else ""
+                    img_src = row["image_url"] if row["image_url"] else "https://images.pokemontcg.io/base1/68_hires.png"
 
-                error_badge = '<span class="badge-error">⚠️ ERROR CARD</span>' if row.get("is_error") == 1 else ""
-                img_src = row["image_url"] if row["image_url"] else "https://images.pokemontcg.io/base1/68_hires.png"
+                    st.markdown(
+                        f"""
+                        <div class="slab-box">
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                                <div>
+                                    <div style="font-weight: 800; font-size: 1.05rem; color: #fff;">{row['card_name']}</div>
+                                    <div style="color: #8c8d9a; font-size: 0.82rem;">{row['set_name']} • #{row['card_number']} ({row.get('edition', 'Unlimited')})</div>
+                                </div>
+                                <div style="text-align: right;">
+                                    {badge_html}
+                                    <div style="margin-top: 4px;">{error_badge}</div>
+                                </div>
+                            </div>
+                            <div style="text-align: center; margin: 10px 0;">
+                                <img src="{img_src}" style="max-height: 165px; max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" />
+                            </div>
+                            <div style="background: #111217; padding: 8px 12px; border-radius: 8px; margin-top: 8px; font-size: 0.82rem;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                                    <span style="color: #8c8d9a;">Language:</span>
+                                    <span style="color: #ffffff; font-weight: 600;">{row.get('language', 'English')}</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                                    <span style="color: #8c8d9a;">Cost Basis:</span>
+                                    <span style="color: #ffffff; font-weight: 600;">${row['purchase_price']:,.2f}</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                                    <span style="color: #8c8d9a;">Market Est:</span>
+                                    <span style="color: #ffd591; font-weight: 700;">${row['current_market_value']:,.2f}</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: #8c8d9a;">Gain / ROI:</span>
+                                    <span style="color: {gain_color}; font-weight: 700;">{gain_sign}${gain:,.2f} ({gain_sign}{roi:.1f}%)</span>
+                                </div>
+                            </div>
+                            <div style="margin-top: 8px; font-size: 0.72rem; color: #666; text-align: right;">
+                                {f"Cert: {row['cert_number']}" if row.get('cert_number') else 'Raw'} • Acquired: {row['purchase_date']}
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
-                st.markdown(
-                    f"""
-                    <div class="slab-box">
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-                            <div>
-                                <div style="font-weight: 800; font-size: 1.05rem; color: #fff;">{row['card_name']}</div>
-                                <div style="color: #8c8d9a; font-size: 0.82rem;">{row['set_name']} • #{row['card_number']} ({row.get('edition', 'Unlimited')})</div>
-                            </div>
-                            <div style="text-align: right;">
-                                {badge_html}
-                                <div style="margin-top: 4px;">{error_badge}</div>
-                            </div>
-                        </div>
-                        <div style="text-align: center; margin: 10px 0;">
-                            <img src="{img_src}" style="max-height: 170px; max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" />
-                        </div>
-                        <div style="background: #111217; padding: 8px 12px; border-radius: 8px; margin-top: 8px; font-size: 0.82rem;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-                                <span style="color: #8c8d9a;">Language:</span>
-                                <span style="color: #ffffff; font-weight: 600;">{row.get('language', 'English')}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-                                <span style="color: #8c8d9a;">Cost Basis:</span>
-                                <span style="color: #ffffff; font-weight: 600;">${row['purchase_price']:,.2f}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-                                <span style="color: #8c8d9a;">Market Est:</span>
-                                <span style="color: #ffd591; font-weight: 700;">${row['current_market_value']:,.2f}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="color: #8c8d9a;">Gain / ROI:</span>
-                                <span style="color: {gain_color}; font-weight: 700;">{gain_sign}${gain:,.2f} ({gain_sign}{roi:.1f}%)</span>
-                            </div>
-                        </div>
-                        <div style="margin-top: 8px; font-size: 0.72rem; color: #666; text-align: right;">
-                            {f"Cert: {row['cert_number']}" if row.get('cert_number') else 'Raw'} • Acquired: {row['purchase_date']}
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button(f"🗑️ Delete", key=f"del_{row['id']}"):
-                    delete_card_from_collection(row["id"])
-                    st.rerun()
+                    btn_c1, btn_c2 = st.columns(2)
+                    with btn_c1:
+                        with st.popover("✏️ Edit Card"):
+                            with st.form(f"edit_form_{row['id']}"):
+                                ed_name = st.text_input("Card Name", value=str(row["card_name"]))
+                                ed_set = st.text_input("Set Name", value=str(row["set_name"]))
+                                ed_num = st.text_input("Card Number", value=str(row["card_number"]))
+                                ed_co = st.selectbox("Grading Company", ["PSA", "CGC", "BGS", "ARS", "ACE", "SGC", "RAW"], index=["PSA", "CGC", "BGS", "ARS", "ACE", "SGC", "RAW"].index(row["grading_company"]) if row["grading_company"] in ["PSA", "CGC", "BGS", "ARS", "ACE", "SGC", "RAW"] else 0)
+                                ed_grade = st.number_input("Grade", min_value=0.0, max_value=10.0, value=float(row.get("grade", 10.0)), step=0.5)
+                                ed_tier = st.selectbox("Grade Label", ["Gem Mint", "Pristine 10", "Black Label 10", "Mint", "Near Mint", "Raw Single"])
+                                ed_price = st.number_input("Purchase Price ($)", min_value=0.0, value=float(row["purchase_price"]), step=5.0)
+                                ed_img = st.text_input("Image URL", value=str(row.get("image_url", "")))
+                                ed_notes = st.text_area("Notes", value=str(row.get("notes", "")))
+                                if st.form_submit_button("Update Slab"):
+                                    update_collection_card(row["id"], {
+                                        "card_name": ed_name,
+                                        "set_name": ed_set,
+                                        "card_number": ed_num,
+                                        "grading_company": ed_co,
+                                        "grade": ed_grade,
+                                        "grade_label": ed_tier,
+                                        "cert_number": str(row.get("cert_number", "")),
+                                        "purchase_price": ed_price,
+                                        "purchase_date": str(row.get("purchase_date", "2024-01-01")),
+                                        "edition": str(row.get("edition", "Unlimited")),
+                                        "language": str(row.get("language", "English")),
+                                        "is_error": int(row.get("is_error", 0)),
+                                        "error_type": row.get("error_type"),
+                                        "is_raw": 1 if ed_co == "RAW" else 0,
+                                        "image_url": ed_img,
+                                        "notes": ed_notes,
+                                    })
+                                    st.success("Updated!")
+                                    st.rerun()
+
+                    with btn_c2:
+                        if st.button("🗑️ Delete", key=f"del_{row['id']}"):
+                            delete_card_from_collection(row["id"])
+                            st.rerun()
+        else:
+            st.dataframe(
+                df_col[[
+                    "card_name", "set_name", "card_number", "grading_company",
+                    "grade", "grade_label", "edition", "language", "purchase_price",
+                    "current_market_value", "unrealized_gain", "roi_percent", "purchase_date", "notes"
+                ]].rename(columns={
+                    "card_name": "Card Name",
+                    "set_name": "Set",
+                    "card_number": "#",
+                    "grading_company": "Grader",
+                    "grade": "Grade",
+                    "grade_label": "Grade Tier",
+                    "edition": "Edition",
+                    "language": "Lang",
+                    "purchase_price": "Cost ($)",
+                    "current_market_value": "Market ($)",
+                    "unrealized_gain": "Gain ($)",
+                    "roi_percent": "ROI %",
+                    "purchase_date": "Acquired",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
 
 # -------------------------------------------------------------
 # TAB 2: Master Set Checklist & Google Sheets Sync
@@ -260,7 +345,7 @@ with tab_vault:
 with tab_master:
     st.markdown("### 📜 Master Set Checklist & Catalog")
 
-    # Master Set Progress Bar Header
+    # Progress Header
     pct = master_metrics["completion_pct"]
     st.markdown(
         f"""
@@ -273,30 +358,30 @@ with tab_master:
                 <div class="progress-bar-fill" style="width: {pct}%;"></div>
             </div>
             <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #8c8d9a;">
-                <span>Owned: <strong style="color: #fff;">{master_metrics['owned_cards']}</strong> / {master_metrics['total_cards']}</span>
+                <span>Owned: <strong style="color: #fff;">{master_metrics['owned_cards']}</strong> / {master_metrics['total_cards']} Unique</span>
                 <span>Missing: <strong style="color: #f87171;">{master_metrics['missing_cards']}</strong> cards</span>
-                <span>Est. Raw Cost: <strong style="color: #ffd591;">${master_metrics['cost_to_complete_raw']:,.2f}</strong></span>
-                <span>Est. Grade 10 Cost: <strong style="color: #f59e0b;">${master_metrics['cost_to_complete_grade10']:,.2f}</strong></span>
+                <span>Est. Raw Finish Cost: <strong style="color: #ffd591;">${master_metrics['cost_to_complete_raw']:,.2f}</strong></span>
+                <span>Est. Grade 10 Finish Cost: <strong style="color: #f59e0b;">${master_metrics['cost_to_complete_grade10']:,.2f}</strong></span>
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    # Filter Controls for Master Set Table
+    # Filter Controls
     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
     with m_col1:
-        m_view = st.selectbox("View Filter", ["All Master Cards", "❌ Missing Cards Only", "✅ Owned Cards Only", "⚠️ Error Cards Only"])
+        m_view = st.selectbox("Status Filter", ["All Master Cards", "❌ Missing Cards Only", "✅ Owned Cards Only", "⚠️ Error Cards Only"])
     with m_col2:
         m_langs = ["All Languages"] + sorted(df_master["language"].dropna().unique().tolist())
-        m_sel_lang = st.selectbox("Language", m_langs)
+        m_sel_lang = st.selectbox("Language Filter", m_langs)
     with m_col3:
         m_eds = ["All Editions"] + sorted(df_master["edition"].dropna().unique().tolist())
-        m_sel_ed = st.selectbox("Edition", m_eds)
+        m_sel_ed = st.selectbox("Edition Filter", m_eds)
     with m_col4:
-        m_search = st.text_input("Search Set or Card Name", placeholder="e.g. Neo Destiny, Promo...")
+        m_search = st.text_input("Search Set or Card Name", placeholder="e.g. Neo Destiny, CoroCoro...")
 
-    # Filter Dataframe
+    # Filter DataFrame
     filtered_master = df_master.copy()
     if m_view == "❌ Missing Cards Only":
         filtered_master = filtered_master[~filtered_master["is_owned"]]
@@ -315,46 +400,151 @@ with tab_master:
             filtered_master["set_name"].str.contains(m_search, case=False, na=False)
         ]
 
-    # Checklist Table
-    st.markdown(f"**Showing {len(filtered_master)} Cards in Master Catalog**")
+    # View Mode Toggle
+    m_top1, m_top2 = st.columns([3, 1])
+    with m_top1:
+        st.markdown(f"**Showing {len(filtered_master)} Cards in Catalog**")
+    with m_top2:
+        master_view_mode = st.radio("Display Layout:", ["🃏 Card Grid View", "📋 Table / List View"], horizontal=True, key="master_v_mode")
 
-    # Render checklist cards or interactive table
-    display_df = filtered_master[[
-        "is_owned", "release_year", "card_name", "set_name", "card_number",
-        "edition", "language", "is_error", "est_raw_price", "est_grade10_price", "notes"
-    ]].copy()
+    if "Card Grid" in master_view_mode:
+        m_cols = st.columns(4)
+        for idx, row in filtered_master.iterrows():
+            col_target = m_cols[idx % 4]
+            with col_target:
+                is_owned = row["is_owned"]
+                status_badge = (
+                    '<span style="background: rgba(34, 197, 94, 0.2); border: 1px solid #22c55e; color: #4ade80; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">✅ OWNED</span>'
+                    if is_owned
+                    else '<span style="background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #f87171; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">❌ MISSING</span>'
+                )
+                err_badge = '<span class="badge-error" style="font-size: 0.68rem;">⚠️ ERROR</span>' if row["is_error"] == 1 else ""
+                img_src = row["image_url"] if row["image_url"] else "https://images.pokemontcg.io/base1/68_hires.png"
 
-    display_df["Status"] = display_df["is_owned"].apply(lambda x: "✅ OWNED" if x else "❌ MISSING")
-    display_df["Error?"] = display_df["is_error"].apply(lambda x: "⚠️ Yes" if x == 1 else "No")
+                st.markdown(
+                    f"""
+                    <div class="slab-box" style="padding: 12px; margin-bottom: 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+                            <div style="font-size: 0.78rem; font-weight: 700; color: #94a3b8;">{row['release_year']} • {row['language']}</div>
+                            <div>{status_badge} {err_badge}</div>
+                        </div>
+                        <div style="text-align: center; margin: 8px 0;">
+                            <img src="{img_src}" style="max-height: 155px; max-width: 100%; border-radius: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);" />
+                        </div>
+                        <div style="font-weight: 800; font-size: 0.92rem; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['card_name']}</div>
+                        <div style="color: #8c8d9a; font-size: 0.78rem; margin-bottom: 8px;">{row['set_name']} #{row['card_number']} ({row['edition']})</div>
+                        <div style="background: #111217; padding: 6px 8px; border-radius: 6px; font-size: 0.78rem; margin-bottom: 8px;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #8c8d9a;">Est Raw:</span>
+                                <span style="color: #ffd591; font-weight: 700;">${row['est_raw_price']:,.2f}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #8c8d9a;">Est 10:</span>
+                                <span style="color: #f59e0b; font-weight: 700;">${row['est_grade10_price']:,.2f}</span>
+                            </div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
-    st.dataframe(
-        display_df[[
-            "Status", "release_year", "card_name", "set_name", "card_number",
-            "edition", "language", "Error?", "est_raw_price", "est_grade10_price", "notes"
-        ]].rename(columns={
-            "release_year": "Year",
-            "card_name": "Card Name",
-            "set_name": "Set / Expansion",
-            "card_number": "#",
-            "edition": "Edition",
-            "language": "Language",
-            "est_raw_price": "Est Raw ($)",
-            "est_grade10_price": "Est 10 ($)",
-            "notes": "Notes",
-        }),
-        use_container_width=True,
-        hide_index=True,
-    )
+                # Quick Action Buttons
+                act1, act2 = st.columns(2)
+                with act1:
+                    with st.popover("📥 Add to Vault"):
+                        with st.form(f"quick_add_{row['id']}"):
+                            st.markdown(f"**Add {row['card_name']} to Vault:**")
+                            q_cond = st.radio("Condition", ["Raw Single", "Graded Slab"], horizontal=True)
+                            q_co = st.selectbox("Grader", ["RAW", "PSA", "CGC", "BGS", "ARS", "ACE"]) if q_cond == "Graded Slab" else "RAW"
+                            q_tier = st.selectbox("Grade Label", ["Raw Single", "Gem Mint", "Pristine 10", "Black Label 10", "Mint"])
+                            q_price = st.number_input("Purchase Price ($)", min_value=0.0, value=float(row["est_raw_price"] or 10.0))
+                            if st.form_submit_button("Confirm Add"):
+                                add_card_to_collection({
+                                    "card_name": row["card_name"],
+                                    "set_name": row["set_name"],
+                                    "card_number": row["card_number"],
+                                    "grading_company": q_co,
+                                    "grade": 10.0 if q_cond == "Graded Slab" else 0.0,
+                                    "grade_label": q_tier,
+                                    "cert_number": "",
+                                    "purchase_price": q_price,
+                                    "purchase_date": datetime.today().strftime("%Y-%m-%d"),
+                                    "edition": row["edition"],
+                                    "language": row["language"],
+                                    "is_error": row["is_error"],
+                                    "error_type": row.get("error_description"),
+                                    "is_raw": 1 if q_cond == "Raw Single" else 0,
+                                    "master_card_id": row["id"],
+                                    "image_url": row["image_url"],
+                                    "notes": f"Added from Master Set Catalog.",
+                                })
+                                st.success("Added to Vault!")
+                                st.rerun()
+
+                with act2:
+                    with st.popover("✏️ Edit Card"):
+                        with st.form(f"edit_m_{row['id']}"):
+                            em_name = st.text_input("Card Name", value=row["card_name"])
+                            em_set = st.text_input("Set Name", value=row["set_name"])
+                            em_num = st.text_input("Card #", value=row["card_number"])
+                            em_ed = st.text_input("Edition", value=row["edition"])
+                            em_lang = st.text_input("Language", value=row["language"])
+                            em_raw_p = st.number_input("Est Raw Price ($)", min_value=0.0, value=float(row["est_raw_price"]), step=2.0)
+                            em_g10_p = st.number_input("Est Grade 10 Price ($)", min_value=0.0, value=float(row["est_grade10_price"]), step=10.0)
+                            em_img = st.text_input("Image URL (Replace/Flag)", value=row["image_url"])
+                            em_err = st.checkbox("Is Error Card?", value=bool(row["is_error"]))
+                            em_notes = st.text_area("Notes / Error Description", value=row["notes"] or "")
+                            if st.form_submit_button("Save Changes"):
+                                update_master_card(row["id"], {
+                                    "card_name": em_name,
+                                    "set_name": em_set,
+                                    "card_number": em_num,
+                                    "release_year": int(row["release_year"]),
+                                    "language": em_lang,
+                                    "edition": em_ed,
+                                    "rarity": row["rarity"],
+                                    "is_error": 1 if em_err else 0,
+                                    "error_description": em_notes if em_err else "",
+                                    "est_raw_price": em_raw_p,
+                                    "est_grade10_price": em_g10_p,
+                                    "image_url": em_img,
+                                    "notes": em_notes,
+                                })
+                                st.success("Saved!")
+                                st.rerun()
+    else:
+        disp_df = filtered_master[[
+            "is_owned", "release_year", "card_name", "set_name", "card_number",
+            "edition", "language", "is_error", "est_raw_price", "est_grade10_price", "notes"
+        ]].copy()
+        disp_df["Status"] = disp_df["is_owned"].apply(lambda x: "✅ OWNED" if x else "❌ MISSING")
+        disp_df["Error?"] = disp_df["is_error"].apply(lambda x: "⚠️ Yes" if x == 1 else "No")
+
+        st.dataframe(
+            disp_df[[
+                "Status", "release_year", "card_name", "set_name", "card_number",
+                "edition", "language", "Error?", "est_raw_price", "est_grade10_price", "notes"
+            ]].rename(columns={
+                "release_year": "Year",
+                "card_name": "Card Name",
+                "set_name": "Set / Expansion",
+                "card_number": "#",
+                "edition": "Edition",
+                "language": "Language",
+                "est_raw_price": "Est Raw ($)",
+                "est_grade10_price": "Est 10 ($)",
+                "notes": "Notes",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     st.markdown("---")
-    st.markdown("#### 🔄 Import / Sync Google Sheet or CSV Catalog")
-    st.markdown(
-        "Have a custom spreadsheet tracking your Vulpix Master Set? Sync it here to automatically update prices, missing cards, and variants."
-    )
+    st.markdown("#### 🔄 Sync 200+ Master Cards from Google Sheet or CSV")
 
     sync_col1, sync_col2 = st.columns(2)
     with sync_col1:
-        st.markdown("##### 🌐 Sync via Google Sheets Public Link")
+        st.markdown("##### 🌐 Sync via Google Sheets Link")
         sheet_url_input = st.text_input(
             "Google Sheet URL",
             value="https://docs.google.com/spreadsheets/d/12RkRdPNwbFly1SXmCS7DQkB5Q5zQZcPAnLX-P8M_vNA/edit?gid=0#gid=0",
@@ -367,13 +557,13 @@ with tab_master:
                     st.rerun()
                 else:
                     st.warning(msg)
-                    st.info("💡 **Tip:** Ensure your Google Sheet is set to *'Anyone with the link can view'*, or download it as CSV and upload it on the right.")
+                    st.info("💡 **Tip:** If the sheet is Restricted, download it as CSV (File → Download → CSV) and upload it on the right.")
 
     with sync_col2:
-        st.markdown("##### 📁 Upload CSV File Directly")
-        uploaded_csv = st.file_uploader("Choose a CSV file", type=["csv"])
+        st.markdown("##### 📁 Upload Master Catalog CSV File")
+        uploaded_csv = st.file_uploader("Choose a CSV file", type=["csv"], key="master_csv_up")
         if uploaded_csv is not None:
-            if st.button("📥 Import Uploaded CSV"):
+            if st.button("📥 Import Uploaded CSV into Master Set"):
                 try:
                     df_up = pd.read_csv(uploaded_csv)
                     count, msg = sync_master_catalog_from_df(df_up)
@@ -592,32 +782,35 @@ with tab_settings:
         if st.button("🔔 Send Test Push Alert"):
             import sys
             sys.path.append(os.path.join(os.path.dirname(__file__), "..", "scraper"))
-            from notifier import send_gotify_alert
-            test_listing = {
-                "listing_id": "test_alert_002",
-                "title": "Light Vulpix Neo Destiny 1st Edition CGC Pristine 10 (TEST ALERT)",
-                "card_name": "Light Vulpix",
-                "grading_company": "CGC",
-                "grade": 10.0,
-                "grade_label": "Pristine 10",
-                "condition_type": "Graded",
-                "edition": "1st Edition",
-                "language": "English",
-                "total_price": 125.00,
-                "price": 125.00,
-                "listing_url": "https://www.ebay.com",
-            }
-            test_appraisal = {
-                "deal_rating": "amazing_deal",
-                "fair_value_estimate": 280.00,
-                "discount_percentage": 55.4,
-                "rationale": "Pristine 10 gold label copy listed at less than standard Gem Mint fair market price.",
-            }
-            res = send_gotify_alert(test_listing, test_appraisal)
-            if res:
-                st.success("Test notification dispatched to Gotify!")
-            else:
-                st.warning("Could not reach Gotify. Ensure GOTIFY_APP_TOKEN is configured in .env.")
+            try:
+                from notifier import send_gotify_alert
+                test_listing = {
+                    "listing_id": "test_alert_002",
+                    "title": "Light Vulpix Neo Destiny 1st Edition CGC Pristine 10 (TEST ALERT)",
+                    "card_name": "Light Vulpix",
+                    "grading_company": "CGC",
+                    "grade": 10.0,
+                    "grade_label": "Pristine 10",
+                    "condition_type": "Graded",
+                    "edition": "1st Edition",
+                    "language": "English",
+                    "total_price": 125.00,
+                    "price": 125.00,
+                    "listing_url": "https://www.ebay.com",
+                }
+                test_appraisal = {
+                    "deal_rating": "amazing_deal",
+                    "fair_value_estimate": 280.00,
+                    "discount_percentage": 55.4,
+                    "rationale": "Pristine 10 gold label copy listed at less than standard Gem Mint fair market price.",
+                }
+                res = send_gotify_alert(test_listing, test_appraisal)
+                if res:
+                    st.success("Test notification dispatched to Gotify!")
+                else:
+                    st.warning("Could not reach Gotify. Ensure GOTIFY_APP_TOKEN is configured in .env.")
+            except Exception as e:
+                st.warning(f"Could not load notifier module: {e}")
 
     st.markdown("---")
     st.markdown("#### ⚡ Trigger Multi-Query eBay Scrape Now")
