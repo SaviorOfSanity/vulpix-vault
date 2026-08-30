@@ -802,11 +802,48 @@ VULPIX_KNOWN_SET_INDEX = {
         "rarity": "Uncommon",
         "image_url": "https://images.pokemontcg.io/base1/68_hires.png",
     },
-    ("vs series", "85"): {
-        "card_name": "Karen's Vulpix (VS Series)",
-        "release_year": 2001,
-        "rarity": "Common",
-        "image_url": "https://images.pokemontcg.io/gym1/65_hires.png",
+    # --- Playing Cards ---
+    ("playing cards", "korean"): {
+        "card_name": "Vulpix",
+        "card_number": "Promo / No #",
+        "release_year": 2010,
+        "rarity": "Playing Card",
+        "image_url": "dashboard/static/cards/playing_cards_korean.jpg",
+    },
+    ("playing cards", ""): {
+        "card_name": "Vulpix",
+        "card_number": "Promo / No #",
+        "release_year": 2010,
+        "rarity": "Playing Card",
+        "image_url": "dashboard/static/cards/playing_cards_korean.jpg",
+    },
+    ("playing cards", "promo"): {
+        "card_name": "Vulpix",
+        "card_number": "Promo / No #",
+        "release_year": 2010,
+        "rarity": "Playing Card",
+        "image_url": "dashboard/static/cards/playing_cards_korean.jpg",
+    },
+    ("playing cards", "4"): {
+        "card_name": "Vulpix",
+        "card_number": "4 of Diamonds",
+        "release_year": 2000,
+        "rarity": "Playing Card",
+        "image_url": "dashboard/static/cards/playing_cards_japanese_4_diamonds.jpg",
+    },
+    ("playing cards", "diamonds"): {
+        "card_name": "Vulpix",
+        "card_number": "4 of Diamonds",
+        "release_year": 2000,
+        "rarity": "Playing Card",
+        "image_url": "dashboard/static/cards/playing_cards_japanese_4_diamonds.jpg",
+    },
+    ("playing cards", "4 of diamonds"): {
+        "card_name": "Vulpix",
+        "card_number": "4 of Diamonds",
+        "release_year": 2000,
+        "rarity": "Playing Card",
+        "image_url": "dashboard/static/cards/playing_cards_japanese_4_diamonds.jpg",
     },
 }
 

@@ -11,10 +11,13 @@ import plotly.express as px
 import streamlit as st
 
 from db_utils import (
+    EDITION_OPTIONS,
+    LANGUAGE_OPTIONS,
     add_card_to_collection,
     add_to_sniper_watchlist,
     auto_enrich_master_catalog,
     bulk_import_collection_from_df,
+    bulk_import_ebay_history,
     delete_card_from_collection,
     delete_from_sniper_watchlist,
     download_all_card_images_locally,
@@ -34,6 +37,7 @@ from db_utils import (
     load_market_sales_df,
     load_master_catalog_df,
     parse_and_preview_catalog,
+    parse_ebay_purchase_history_text,
     parse_ebay_url_details,
     reset_and_clean_sync_master_catalog,
     send_gotify_alert,
@@ -57,13 +61,41 @@ st.set_page_config(
 apply_custom_styles()
 render_header()
 
-# Load Core Data
-port_metrics = get_portfolio_metrics()
-master_metrics = get_master_set_metrics()
-df_col = load_collection_df()
-df_master = load_master_catalog_df()
-df_market = load_market_sales_df()
-df_sniper = get_sniper_watchlist_df()
+# Fast In-Memory Cached Loaders to Eliminate UI Latency & Typing Lag
+@st.cache_data(ttl=60)
+def get_cached_collection_df():
+    return load_collection_df()
+
+@st.cache_data(ttl=60)
+def get_cached_master_catalog_df():
+    return load_master_catalog_df()
+
+@st.cache_data(ttl=60)
+def get_cached_portfolio_metrics():
+    return get_portfolio_metrics()
+
+@st.cache_data(ttl=60)
+def get_cached_master_set_metrics():
+    return get_master_set_metrics()
+
+@st.cache_data(ttl=60)
+def get_cached_market_sales_df():
+    return load_market_sales_df()
+
+@st.cache_data(ttl=60)
+def get_cached_sniper_watchlist_df():
+    return get_sniper_watchlist_df()
+
+def clear_dashboard_cache():
+    st.cache_data.clear()
+
+# Load Core Data via Fast Caching
+port_metrics = get_cached_portfolio_metrics()
+master_metrics = get_cached_master_set_metrics()
+df_col = get_cached_collection_df()
+df_master = get_cached_master_catalog_df()
+df_market = get_cached_market_sales_df()
+df_sniper = get_cached_sniper_watchlist_df()
 
 # -------------------------------------------------------------
 # Main Navigation Tabs
@@ -120,10 +152,10 @@ with tab_portfolio:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Add Card Expanders (Manual + CSV Import)
-    col_add1, col_add2 = st.columns(2)
+    # Add Card Expanders (Manual + eBay History + CSV Import)
+    col_add1, col_add2, col_add3 = st.columns(3)
     with col_add1:
-        with st.expander("➕ Manually Add Graded Slab or Raw Card to Vault", expanded=False):
+        with st.expander("➕ Add Card to Vault", expanded=False):
             with st.form("manual_add_card_form", clear_on_submit=True):
                 f_c1, f_c2 = st.columns(2)
                 with f_c1:
@@ -138,11 +170,12 @@ with tab_portfolio:
                     cert_num = st.text_input("Certification Number (Slab Cert #)", placeholder="e.g. 84729103")
                     buy_price = st.number_input("Purchase Price ($)*", min_value=0.0, value=25.0, step=5.0)
                     buy_date = st.date_input("Purchase Date", value=datetime.today())
-                    edition = st.selectbox("Edition", ["Unlimited", "1st Edition", "Shadowless", "Reverse Holo", "Promo", "4th Print (1999-2000)"])
-                    language = st.selectbox("Language", ["English", "Japanese", "German", "French", "Korean", "Chinese", "Italian"])
+                    edition = st.selectbox("Edition / Rarity", EDITION_OPTIONS)
+                    language = st.selectbox("Language", LANGUAGE_OPTIONS)
 
                 is_err = st.checkbox("Is Error / Misprint Card?")
                 err_desc = st.text_input("Error Description", placeholder="e.g. Blue Ink Drop Error, HP 50 Error") if is_err else ""
+                custom_img_url = st.text_input("Custom Image URL (Optional)", placeholder="e.g. eBay image link or uploaded scan")
                 notes = st.text_area("Personal Notes / Provenance", placeholder="e.g. Won on eBay auction, subgrade details...")
                 submit_add = st.form_submit_button("💾 Save Card to Vault")
 
@@ -165,13 +198,38 @@ with tab_portfolio:
                             "is_error": 1 if is_err else 0,
                             "error_type": err_desc if is_err else None,
                             "is_raw": 1 if condition_type == "Raw Single" else 0,
+                            "image_url": custom_img_url if custom_img_url else None,
                             "notes": notes,
                         })
+                        clear_dashboard_cache()
                         st.success(f"Added {card_name} to your Vault!")
                         st.rerun()
 
     with col_add2:
-        with st.expander("📥 Bulk Import Owned Cards from CSV", expanded=False):
+        with st.expander("📦 Import from eBay Order History", expanded=False):
+            st.markdown("Paste order text from your **eBay Purchase History** or confirmation emails to auto-extract and add cards!")
+            ebay_paste_text = st.text_area(
+                "Paste eBay Order History Text",
+                placeholder="e.g.\nDelivered on Thu, Feb 19\n2019 POKEMON SUN & MOON ALOLAN VULPIX - HOLO GEM MT HIDDEN FATES PSA 10\nUS $45.05\nOrder number: 16-14228-18572",
+                height=120,
+                key="ebay_paste_input",
+            )
+            if ebay_paste_text:
+                parsed_ebay_items = parse_ebay_purchase_history_text(ebay_paste_text)
+                if parsed_ebay_items:
+                    st.markdown(f"**Found {len(parsed_ebay_items)} Card(s) in Text:**")
+                    df_preview_ebay = pd.DataFrame(parsed_ebay_items)[["card_name", "set_name", "card_number", "grading_company", "grade_label", "purchase_price", "purchase_date", "language"]]
+                    st.dataframe(df_preview_ebay, use_container_width=True)
+                    if st.button("🚀 Confirm Add All eBay Cards to Vault", key="btn_confirm_ebay_import"):
+                        cnt_eb, msg_eb = bulk_import_ebay_history(parsed_ebay_items)
+                        clear_dashboard_cache()
+                        st.success(msg_eb)
+                        st.rerun()
+                else:
+                    st.warning("Could not find Vulpix / Pokémon card items in the pasted text. Make sure the title and price lines are included.")
+
+    with col_add3:
+        with st.expander("📥 Bulk Import from CSV", expanded=False):
             st.markdown("Import cards you already own from a CSV file directly into your Vault.")
             st.download_button(
                 "📥 Download Starter CSV Template",
@@ -186,6 +244,7 @@ with tab_portfolio:
                     st.dataframe(df_up_col.head(3), use_container_width=True)
                     if st.button("🚀 Confirm Bulk Import into Vault"):
                         count_imp, msg_imp = bulk_import_collection_from_df(df_up_col)
+                        clear_dashboard_cache()
                         st.success(msg_imp)
                         st.rerun()
                 except Exception as e:
@@ -201,6 +260,7 @@ with tab_portfolio:
         with v_col2:
             if st.button("✨ Auto-Enrich Vault", key="btn_enrich_vault", use_container_width=True):
                 count_enr, msg_enr = auto_enrich_master_catalog(force_all=True)
+                clear_dashboard_cache()
                 st.success(msg_enr)
                 st.rerun()
         with v_col3:
@@ -225,8 +285,21 @@ with tab_portfolio:
                     psa_link = get_psa_cert_lookup_url(row["cert_number"]) if row["cert_number"] else None
                     cert_display = f'<a href="{psa_link}" target="_blank" style="color: #60a5fa; text-decoration: none; font-weight: 700;">#{row["cert_number"]} ↗</a>' if psa_link else (f'#{row["cert_number"]}' if row["cert_number"] else 'Raw Single')
 
-                    gain_sign = "+" if row["unrealized_gain"] >= 0 else ""
-                    gain_color = "#4ade80" if row["unrealized_gain"] >= 0 else "#f87171"
+                    # Format Bought & Market cleanly with unrecorded / unappraised fallback
+                    if row["purchase_price"] > 0:
+                        bought_display = f"${row['purchase_price']:,.2f} ({row['purchase_date']})"
+                    else:
+                        bought_display = '<span style="color: #64748b; font-style: italic;">— (Unrecorded)</span>'
+
+                    if row["current_market_value"] > 0:
+                        market_display = f"${row['current_market_value']:,.2f}"
+                        gain_sign = "+" if row["unrealized_gain"] >= 0 else ""
+                        gain_color = "#4ade80" if row["unrealized_gain"] >= 0 else "#f87171"
+                        roi_display = f'<span style="color: {gain_color}; font-weight: 700;">{gain_sign}${row["unrealized_gain"]:,.2f} ({gain_sign}{row["roi_percent"]}%)</span>'
+                    else:
+                        market_display = '<span style="color: #64748b; font-style: italic;">— (Unappraised)</span>'
+                        roi_display = '<span style="color: #64748b;">—</span>'
+
                     card_num_str = f"#{row['card_number']}" if row['card_number'] and str(row['card_number']).lower() != "nan" else "(Promo / No #)"
 
                     card_box_html = f"""<div class="slab-box">
@@ -242,15 +315,15 @@ with tab_portfolio:
 <div style="background: #111217; padding: 8px 10px; border-radius: 8px; font-size: 0.82rem; margin-bottom: 8px;">
 <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
 <span style="color: #8c8d9a;">Bought:</span>
-<span style="color: #fff; font-weight: 600;">${row['purchase_price']:,.2f} ({row['purchase_date']})</span>
+<span style="color: #fff; font-weight: 600;">{bought_display}</span>
 </div>
 <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
 <span style="color: #8c8d9a;">Est. Market:</span>
-<span style="color: #ffd591; font-weight: 700;">${row['current_market_value']:,.2f}</span>
+<span style="color: #ffd591; font-weight: 700;">{market_display}</span>
 </div>
 <div style="display: flex; justify-content: space-between;">
 <span style="color: #8c8d9a;">Gain / ROI:</span>
-<span style="color: {gain_color}; font-weight: 700;">{gain_sign}${row['unrealized_gain']:,.2f} ({gain_sign}{row['roi_percent']}%)</span>
+{roi_display}
 </div>
 </div>
 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; color: #8c8d9a;">
@@ -274,11 +347,13 @@ with tab_portfolio:
                                 e_cert = st.text_input("Cert #", value=row["cert_number"] or "")
                                 e_cost = st.number_input("Purchase Price ($)", min_value=0.0, value=float(row["purchase_price"]), step=5.0)
                                 e_date = st.text_input("Purchase Date", value=str(row["purchase_date"]))
-                                e_ed = st.text_input("Edition", value=str(row["edition"]))
-                                e_lang = st.text_input("Language", value=str(row["language"]))
+                                ed_idx = EDITION_OPTIONS.index(row["edition"]) if row["edition"] in EDITION_OPTIONS else 0
+                                e_ed = st.selectbox("Edition / Rarity", EDITION_OPTIONS, index=ed_idx)
+                                lang_idx = LANGUAGE_OPTIONS.index(row["language"]) if row["language"] in LANGUAGE_OPTIONS else 0
+                                e_lang = st.selectbox("Language", LANGUAGE_OPTIONS, index=lang_idx)
                                 e_err = st.checkbox("Error Card?", value=bool(row["is_error"]))
                                 e_err_type = st.text_input("Error Type", value=row["error_type"] or "") if e_err else ""
-                                e_img = st.text_input("Image URL", value=row["image_url"] or "")
+                                e_img = st.text_input("Image URL (Custom/Scan)", value=row["image_url"] or "")
                                 e_notes = st.text_area("Notes", value=row["notes"] or "")
 
                                 if st.form_submit_button("Save Changes"):
@@ -300,7 +375,8 @@ with tab_portfolio:
                                         "image_url": e_img,
                                         "notes": e_notes,
                                     })
-                                    st.success("Updated card!")
+                                    clear_dashboard_cache()
+                                    st.success("Card updated!")
                                     st.rerun()
 
                     with b2:
@@ -308,6 +384,7 @@ with tab_portfolio:
                             st.write(f"Remove **{row['card_name']}** ({row['set_name']}) from your Vault?")
                             if st.button("Confirm Delete", key=f"del_{row['id']}", type="primary"):
                                 delete_card_from_collection(row["id"])
+                                clear_dashboard_cache()
                                 st.success("Removed from Vault!")
                                 st.rerun()
 
@@ -484,6 +561,9 @@ with tab_master_set:
 
                 card_num_display = f"#{row['card_number']}" if row['card_number'] and str(row['card_number']).lower() != "nan" else "(Promo / No #)"
 
+                est_raw_display = f"${row['est_raw_price']:,.2f}" if row['est_raw_price'] > 0 else '<span style="color: #64748b; font-style: italic;">—</span>'
+                est_g10_display = f"${row['est_grade10_price']:,.2f}" if row['est_grade10_price'] > 0 else '<span style="color: #64748b; font-style: italic;">—</span>'
+
                 # Render HTML unindented to prevent markdown code block bug
                 master_card_html = f"""<div class="slab-box" style="padding: 12px; margin-bottom: 14px;">
 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
@@ -501,11 +581,11 @@ with tab_master_set:
 <div style="background: #111217; padding: 6px 8px; border-radius: 6px; font-size: 0.78rem; margin-bottom: 8px;">
 <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
 <span style="color: #8c8d9a;">Est Raw:</span>
-<span style="color: #ffd591; font-weight: 700;">${row['est_raw_price']:,.2f}</span>
+<span style="color: #ffd591; font-weight: 700;">{est_raw_display}</span>
 </div>
 <div style="display: flex; justify-content: space-between;">
 <span style="color: #8c8d9a;">Est PSA 10:</span>
-<span style="color: #f59e0b; font-weight: 700;">${row['est_grade10_price']:,.2f}</span>
+<span style="color: #f59e0b; font-weight: 700;">{est_g10_display}</span>
 </div>
 </div>
 <div style="display: flex; gap: 4px; margin-bottom: 4px;">
@@ -533,6 +613,7 @@ with tab_master_set:
                             st.caption(f"Details: {row['owned_details']}")
                             if st.button("❌ Remove / Unmark as Owned", key=f"unmark_{row['id']}", type="primary"):
                                 unmark_card_as_owned(row["id"], row["card_name"], row["set_name"])
+                                clear_dashboard_cache()
                                 st.success("Unmarked card from Vault!")
                                 st.rerun()
                             st.markdown("---")
@@ -566,6 +647,7 @@ with tab_master_set:
                                     "image_url": row["image_url"],
                                     "notes": f"Added from Master Set Catalog.",
                                 })
+                                clear_dashboard_cache()
                                 st.success("Added to Vault!")
                                 st.rerun()
 
@@ -575,8 +657,10 @@ with tab_master_set:
                             em_name = st.text_input("Card Name", value=row["card_name"])
                             em_set = st.text_input("Set Name", value=row["set_name"])
                             em_num = st.text_input("Card #", value=row["card_number"])
-                            em_ed = st.text_input("Edition", value=row["edition"])
-                            em_lang = st.text_input("Language", value=row["language"])
+                            ed_idx_m = EDITION_OPTIONS.index(row["edition"]) if row["edition"] in EDITION_OPTIONS else 0
+                            em_ed = st.selectbox("Edition / Rarity", EDITION_OPTIONS, index=ed_idx_m)
+                            lang_idx_m = LANGUAGE_OPTIONS.index(row["language"]) if row["language"] in LANGUAGE_OPTIONS else 0
+                            em_lang = st.selectbox("Language", LANGUAGE_OPTIONS, index=lang_idx_m)
                             em_raw_p = st.number_input("Est Raw Price ($)", min_value=0.0, value=float(row["est_raw_price"]), step=2.0)
                             em_g10_p = st.number_input("Est Grade 10 Price ($)", min_value=0.0, value=float(row["est_grade10_price"]), step=10.0)
                             em_pop = st.number_input("PSA/CGC Pop (Grade 10)", min_value=0, value=int(row.get("pop_grade10") or 0))
@@ -602,12 +686,14 @@ with tab_master_set:
                                     "image_url": em_img,
                                     "notes": em_notes,
                                 })
+                                clear_dashboard_cache()
                                 st.success("Saved!")
                                 st.rerun()
 
                         if row["image_url"] and row["image_url"] != DEFAULT_CARD_BACK_IMAGE:
                             if st.button("🚩 Reset Image to Card Back", key=f"flag_edit_{row['id']}"):
                                 update_card_image_override("master_set_catalog", row["id"], DEFAULT_CARD_BACK_IMAGE)
+                                clear_dashboard_cache()
                                 st.success("Reset image to Card Back placeholder!")
                                 st.rerun()
 

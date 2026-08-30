@@ -22,15 +22,15 @@ import pandas as pd
 
 from metadata_resolver import DEFAULT_CARD_BACK_IMAGE, VULPIX_KNOWN_SET_INDEX, extract_base_number, normalize_str, resolve_card_metadata
 
-DEFAULT_DB_PATH = os.getenv("DB_PATH", "/data/vulpix_vault.db")
-
-
 def get_db_path() -> str:
-    path = os.getenv("DB_PATH", DEFAULT_DB_PATH)
-    if not os.path.isabs(path):
-        path = os.path.join(os.path.dirname(__file__), "..", "data", "vulpix_vault.db")
+    path = os.getenv("DB_PATH")
+    if not path:
+        if os.name != "nt" and os.path.exists("/data") and os.path.isdir("/data"):
+            path = "/data/vulpix_vault.db"
+        else:
+            path = os.path.join(os.path.dirname(__file__), "..", "data", "vulpix_vault.db")
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    return path
+    return os.path.abspath(path)
 
 
 @contextmanager
@@ -1407,41 +1407,195 @@ def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
     return count, f"Successfully imported {count} cards into your Vault collection!"
 
 
-def get_csv_template_bytes() -> bytes:
-    """Generates a clean starter CSV template bytes."""
-    df_template = pd.DataFrame([
-        {
-            "Release Date": 1999,
-            "Language": "English",
-            "Set / Source": "Base Set",
-            "Card #": "68/102",
-            "1st Ed?": "Yes",
-            "Variant / Stamp / Code": "Shadowless",
-            "Error / Notes": "",
-            "Raw": "Yes",
-            "Pristine 10": "No",
-            "Gem Mint 10": "No",
-            "PSA 10 Value": 240.00,
-            "Avg Raw Price": 27.68,
-        },
-        {
-            "Release Date": 2000,
-            "Language": "English",
-            "Set / Source": "Gym Heroes",
-            "Card #": "65/132",
-            "1st Ed?": "Yes",
-            "Variant / Stamp / Code": "Blaine's Vulpix",
-            "Error / Notes": "",
-            "Raw": "No",
-            "Pristine 10": "No",
-            "Gem Mint 10": "Yes",
-            "PSA 10 Value": 85.00,
-            "Avg Raw Price": 4.50,
-        }
-    ])
-    output = io.StringIO()
-    df_template.to_csv(output, index=False)
-    return output.getvalue().encode("utf-8")
+EDITION_OPTIONS = [
+    "Unlimited",
+    "1st Edition",
+    "Shadowless",
+    "Reverse Holo",
+    "Promo",
+    "Art Rare (AR)",
+    "Special Art Rare (SAR)",
+    "Illustration Rare (IR)",
+    "Special Illustration Rare (SIR)",
+    "Rainbow Rare (HR)",
+    "Super Rare (SR)",
+    "Ultra Rare (UR)",
+    "Shiny Vault / Baby Shiny",
+    "Trainer Gallery (TG)",
+    "Galarian Gallery (GG)",
+    "Secret Rare",
+    "Double Rare (RR)",
+    "Triple Rare (RRR)",
+    "Playing Card",
+    "4th Print (1999-2000)",
+]
+
+LANGUAGE_OPTIONS = ["English", "Japanese", "German", "French", "Korean", "Chinese", "Italian", "Spanish"]
+
+
+def parse_ebay_purchase_history_text(raw_text: str) -> List[Dict[str, Any]]:
+    """
+    Intelligently parses copy-pasted text from eBay purchase history, order emails, or receipts.
+    Extracts Card Name, Set, Number, Grader, Grade, Purchase Price, Order Date, and Order Number.
+    """
+    if not raw_text or not raw_text.strip():
+        return []
+
+    parsed_items = []
+    # Split text into order blocks by 'Delivered', 'Order date:', or multiple newlines
+    chunks = re.split(r'(?i)(?=order\s+date:|delivered\b|\border\s*#)', raw_text)
+    for ch in chunks:
+        if not ch.strip() or len(ch.strip()) < 10:
+            continue
+
+        # Extract price
+        price_match = re.search(r'(?:order\s+total:\s*)?(?:US\s*)?\$([0-9]+(?:\.[0-9]{2})?)', ch, re.IGNORECASE)
+        price = float(price_match.group(1)) if price_match else 0.0
+
+        # Extract date
+        date_match = re.search(r'(?:order\s+date:\s*)?([A-Za-z]{3,9}\s+[0-9]{1,2},?\s+[0-9]{4})', ch, re.IGNORECASE)
+        date_str = datetime.today().strftime("%Y-%m-%d")
+        if date_match:
+            try:
+                dt = datetime.strptime(date_match.group(1).replace(",", ""), "%b %d %Y")
+                date_str = dt.strftime("%Y-%m-%d")
+            except Exception:
+                pass
+
+        # Extract order number
+        order_match = re.search(r'order\s*(?:number|#)?:\s*([0-9-]+)', ch, re.IGNORECASE)
+        order_num = order_match.group(1) if order_match else ""
+
+        # Extract title line containing card keywords
+        ch_lines = [l.strip() for l in ch.splitlines() if l.strip()]
+        title = ""
+        for line in ch_lines:
+            if any(k in line.lower() for k in ["vulpix", "pikachu", "pokemon", "psa", "cgc", "bgs", "slab", "gem mt"]):
+                if not line.lower().startswith("order") and not line.lower().startswith("delivered") and not line.lower().startswith("sold by") and not line.lower().startswith("returns"):
+                    title = line
+                    break
+        if not title and ch_lines:
+            for l in ch_lines:
+                if len(l) > 15 and not l.lower().startswith("order") and not l.lower().startswith("delivered"):
+                    title = l
+                    break
+
+        if not title:
+            continue
+
+        # Parse Grader & Grade
+        grader = "RAW"
+        grade_num = 0.0
+        grade_label = "Raw Single"
+        is_raw = 1
+
+        t_low = title.lower()
+        if "pristine 10" in t_low:
+            grade_num = 10.0
+            grade_label = "Pristine 10"
+            is_raw = 0
+            grader = "CGC" if "cgc" in t_low else ("BGS" if "bgs" in t_low else "PSA")
+        elif "black label" in t_low:
+            grade_num = 10.0
+            grade_label = "Black Label 10"
+            is_raw = 0
+            grader = "BGS"
+        elif "psa 10" in t_low or "gem mt" in t_low or "cgc 10" in t_low:
+            grade_num = 10.0
+            grade_label = "Gem Mint"
+            is_raw = 0
+            grader = "PSA" if "psa" in t_low else ("CGC" if "cgc" in t_low else "PSA")
+        elif "psa 9" in t_low or "cgc 9" in t_low or "mint 9" in t_low:
+            grade_num = 9.0
+            grade_label = "Mint 9"
+            is_raw = 0
+            grader = "PSA" if "psa" in t_low else "CGC"
+        elif "psa 8" in t_low or "cgc 8" in t_low or "nm 8" in t_low:
+            grade_num = 8.0
+            grade_label = "Near Mint 8"
+            is_raw = 0
+            grader = "PSA" if "psa" in t_low else "CGC"
+
+        # Parse language
+        lang = "Japanese" if "japanese" in t_low or "jp" in t_low else ("Korean" if "korean" in t_low else "English")
+
+        # Parse card number: "023/068", "SV8/SV94", etc.
+        num_match = re.search(r'([A-Za-z0-9]+/[A-Za-z0-9]+)', title)
+        card_num = num_match.group(1) if num_match else ""
+
+        # Parse set name
+        set_name = "Promo"
+        if "hidden fates" in t_low:
+            set_name = "Hidden Fates"
+        elif "incandescent arcana" in t_low or "023/068" in title:
+            set_name = "Incandescent Arcana"
+        elif "silver tempest" in t_low:
+            set_name = "Silver Tempest"
+        elif "base set" in t_low:
+            set_name = "Base Set"
+        elif "gym heroes" in t_low:
+            set_name = "Gym Heroes"
+        elif "gym challenge" in t_low:
+            set_name = "Gym Challenge"
+        elif "sun & moon" in t_low or "sun and moon" in t_low:
+            set_name = "Sun & Moon"
+
+        # Parse card name
+        card_name = "Alolan Vulpix" if "alolan" in t_low else "Vulpix"
+        if "blaine" in t_low:
+            card_name = "Blaine's Vulpix"
+        elif "brock" in t_low:
+            card_name = "Brock's Vulpix"
+        elif "poncho" in t_low:
+            card_name = "Poncho-wearing Pikachu (Alolan Vulpix Poncho)" if "alolan" in t_low else "Poncho-wearing Pikachu (Vulpix Poncho)"
+
+        # Parse Edition
+        edition = "Unlimited"
+        if "1st" in t_low or "first edition" in t_low:
+            edition = "1st Edition"
+        elif "shadowless" in t_low:
+            edition = "Shadowless"
+        elif "rainbow" in t_low:
+            edition = "Rainbow Rare (HR)"
+        elif "art rare" in t_low or "ar" in t_low:
+            edition = "Art Rare (AR)"
+        elif "shiny" in t_low or "holo" in t_low:
+            edition = "Shiny Vault / Baby Shiny" if "hidden fates" in t_low else "Unlimited"
+
+        # Resolve image
+        meta = resolve_card_metadata(set_name, card_num, card_name)
+        img_url = meta.get("image_url") or DEFAULT_CARD_BACK_IMAGE
+
+        parsed_items.append({
+            "title": title,
+            "card_name": card_name,
+            "set_name": set_name,
+            "card_number": card_num or meta.get("card_number", ""),
+            "grading_company": grader,
+            "grade": grade_num,
+            "grade_label": grade_label,
+            "cert_number": "",
+            "purchase_price": price,
+            "purchase_date": date_str,
+            "edition": edition,
+            "language": lang,
+            "is_raw": is_raw,
+            "image_url": img_url,
+            "notes": f"Imported from eBay Order #{order_num}" if order_num else "Imported from eBay Purchase History",
+        })
+
+    return parsed_items
+
+
+def bulk_import_ebay_history(items: List[Dict[str, Any]]) -> Tuple[int, str]:
+    """Bulk imports parsed eBay purchase history items directly into Vault."""
+    if not items:
+        return 0, "No items to import."
+    count = 0
+    for it in items:
+        add_card_to_collection(it)
+        count += 1
+    return count, f"Successfully imported {count} cards from eBay Purchase History into your Vault!"
 
 
 # =============================================================

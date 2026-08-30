@@ -339,16 +339,28 @@ def render_header():
 
 
 def get_edition_badge_html(edition: str) -> str:
-    """Returns styled HTML badge for 1st Edition, Shadowless, Reverse Holo, etc."""
+    """Returns styled HTML badge for 1st Edition, Shadowless, Rainbow Rare, Art Rare, SAR, etc."""
     ed_lower = str(edition).lower()
     if "1st" in ed_lower or "first" in ed_lower:
         return '<span style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.15)); border: 1px solid #f59e0b; color: #fbbf24; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem; letter-spacing: 0.5px;">🥇 1ST EDITION</span>'
+    if "rainbow" in ed_lower or "hr" in ed_lower:
+        return '<span style="background: linear-gradient(135deg, rgba(236,72,153,0.3), rgba(59,130,246,0.3), rgba(234,179,8,0.3)); border: 1px solid #ec4899; color: #fbcfe8; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem;">🌈 RAINBOW RARE</span>'
+    if "special art rare" in ed_lower or "sar" in ed_lower:
+        return '<span style="background: linear-gradient(135deg, rgba(245,158,11,0.3), rgba(168,85,247,0.3)); border: 1px solid #a855f7; color: #e9d5ff; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem;">✨ SAR</span>'
+    if "art rare" in ed_lower or "ar" == ed_lower.strip():
+        return '<span style="background: rgba(168, 85, 247, 0.2); border: 1px solid #a855f7; color: #c084fc; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem;">🎨 ART RARE</span>'
+    if "illustration rare" in ed_lower or "ir" in ed_lower:
+        return '<span style="background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; color: #93c5fd; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem;">🖼️ IR</span>'
+    if "shiny" in ed_lower or "vault" in ed_lower:
+        return '<span style="background: linear-gradient(135deg, rgba(56,189,248,0.25), rgba(234,179,8,0.25)); border: 1px solid #38bdf8; color: #bae6fd; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem;">⭐ SHINY</span>'
     if "shadowless" in ed_lower:
         return '<span style="background: rgba(168, 85, 247, 0.2); border: 1px solid #a855f7; color: #c084fc; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">SHADOWLESS</span>'
     if "reverse" in ed_lower:
         return '<span style="background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; color: #60a5fa; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">REVERSE HOLO</span>'
     if "promo" in ed_lower:
         return '<span style="background: rgba(236, 72, 153, 0.2); border: 1px solid #ec4899; color: #f472b6; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">PROMO</span>'
+    if "playing" in ed_lower:
+        return '<span style="background: rgba(234, 179, 8, 0.2); border: 1px solid #eab308; color: #fef08a; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">🃏 PLAYING CARD</span>'
     if "4th print" in ed_lower or "1999-2000" in ed_lower:
         return '<span style="background: rgba(20, 184, 166, 0.2); border: 1px solid #14b8a6; color: #2dd4bf; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">UK / 4TH PRINT</span>'
     return ""
