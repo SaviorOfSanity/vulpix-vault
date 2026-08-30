@@ -6,6 +6,7 @@ system settings persistence, multi-fallback Gotify push dispatcher, sniper watch
 and interactive Pre-Import Verification preview.
 """
 
+import base64
 import io
 import json
 import os
@@ -15,6 +16,7 @@ import urllib.parse
 import urllib.request
 from contextlib import contextmanager
 from datetime import datetime
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
@@ -338,6 +340,83 @@ def get_psa_cert_lookup_url(cert_number: str) -> str:
     if clean_cert:
         return f"https://www.psacard.com/cert/{clean_cert}"
     return "https://www.psacard.com/pop"
+
+
+@lru_cache(maxsize=1000)
+def get_card_image_data_uri(img_path_or_url: str) -> str:
+    """
+    If img_path_or_url is a local file in dashboard/static/cards, returns fast base64 data URI.
+    If it is an external URL https://..., returns the URL directly.
+    """
+    if not img_path_or_url:
+        return DEFAULT_CARD_BACK_IMAGE
+
+    # Check direct file path
+    if os.path.exists(img_path_or_url):
+        try:
+            with open(img_path_or_url, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("utf-8")
+                mime = "image/png" if img_path_or_url.endswith(".png") else "image/jpeg"
+                return f"data:{mime};base64,{b64}"
+        except Exception:
+            pass
+
+    # Check relative to static directory
+    static_file = os.path.join(os.path.dirname(__file__), "static", "cards", os.path.basename(img_path_or_url))
+    if os.path.exists(static_file):
+        try:
+            with open(static_file, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("utf-8")
+                mime = "image/png" if static_file.endswith(".png") else "image/jpeg"
+                return f"data:{mime};base64,{b64}"
+        except Exception:
+            pass
+
+    # Also check if filename matches without path
+    base_name = os.path.basename(img_path_or_url)
+    alt_file = os.path.join("dashboard", "static", "cards", base_name)
+    if os.path.exists(alt_file):
+        try:
+            with open(alt_file, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("utf-8")
+                mime = "image/png" if alt_file.endswith(".png") else "image/jpeg"
+                return f"data:{mime};base64,{b64}"
+        except Exception:
+            pass
+
+    return img_path_or_url
+
+
+def download_all_card_images_locally() -> Tuple[int, str]:
+    """
+    Scrapes and downloads all high-res card scans from TCGCollector & Pokemon TCG API
+    directly to local storage (dashboard/static/cards) for instant local serving.
+    """
+    img_dir = os.path.join(os.path.dirname(__file__), "static", "cards")
+    os.makedirs(img_dir, exist_ok=True)
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+
+    downloaded = 0
+    df_m = load_master_catalog_df()
+    for _, r in df_m.iterrows():
+        url = r.get("image_url")
+        if not url or url == DEFAULT_CARD_BACK_IMAGE or not url.startswith("http"):
+            continue
+
+        filename = re.sub(r"[^a-zA-Z0-9_-]", "_", f"{r['set_name']}_{r['card_number']}".lower()).strip("_") + ".jpg"
+        dest_path = os.path.join(img_dir, filename)
+        if not os.path.exists(dest_path):
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = resp.read()
+                    with open(dest_path, "wb") as f:
+                        f.write(data)
+                downloaded += 1
+            except Exception:
+                continue
+
+    return downloaded, f"Successfully downloaded and cached {downloaded} card images locally!"
 
 
 # =============================================================

@@ -17,8 +17,10 @@ from db_utils import (
     bulk_import_collection_from_df,
     delete_card_from_collection,
     delete_from_sniper_watchlist,
+    download_all_card_images_locally,
     generate_ebay_search_url,
     get_card_aggregator_links,
+    get_card_image_data_uri,
     get_csv_template_bytes,
     get_db_path,
     get_master_set_metrics,
@@ -219,7 +221,7 @@ with tab_portfolio:
                     err_badge = '<span class="badge-error">⚠️ ERROR</span>' if row["is_error"] == 1 else ""
                     pop_badge = get_pop_badge_html(int(row.get("pop_grade10") or 0), int(row.get("pop_pristine10") or 0))
 
-                    img_src = row["image_url"] if row["image_url"] else DEFAULT_CARD_BACK_IMAGE
+                    img_src = get_card_image_data_uri(row["image_url"] if row["image_url"] else DEFAULT_CARD_BACK_IMAGE)
                     psa_link = get_psa_cert_lookup_url(row["cert_number"]) if row["cert_number"] else None
                     cert_display = f'<a href="{psa_link}" target="_blank" style="color: #60a5fa; text-decoration: none; font-weight: 700;">#{row["cert_number"]} ↗</a>' if psa_link else (f'#{row["cert_number"]}' if row["cert_number"] else 'Raw Single')
 
@@ -384,16 +386,22 @@ with tab_master_set:
     )
 
     # Metadata Verification & Auto-Enrichment Banner
-    en_col1, en_col2 = st.columns([3, 1])
+    en_col1, en_col2, en_col3 = st.columns([2, 1.2, 1.2])
     with en_col1:
         st.markdown(
-            "💡 *Card name missing or showing wrong artwork? Click to query Pokemon.com & 200+ Master Index to fill exact names (e.g. Blaine's Vulpix) and official card scans.*"
+            "💡 *Card name missing or showing wrong artwork? Click to resolve exact names and download verified official card scans directly to your local server.*"
         )
     with en_col2:
-        if st.button("⚡ Auto-Enrich Names & Images", key="btn_auto_enrich_master"):
+        if st.button("✨ Auto-Enrich Names & Images", key="btn_auto_enrich_master", use_container_width=True):
             with st.spinner("Resolving card names and fetching official scans..."):
                 cnt, msg = auto_enrich_master_catalog(force_all=True)
                 st.success(msg)
+                st.rerun()
+    with en_col3:
+        if st.button("⚡ Cache Scans Locally", key="btn_download_images_local", use_container_width=True):
+            with st.spinner("Downloading high-res images to server for instant offline loading..."):
+                d_cnt, d_msg = download_all_card_images_locally()
+                st.success(d_msg)
                 st.rerun()
 
     # Filter Controls
@@ -453,7 +461,7 @@ with tab_master_set:
                 ed_badge = get_edition_badge_html(row.get("edition", "Unlimited"))
                 err_badge = '<span class="badge-error">⚠️ ERROR</span>' if row["is_error"] == 1 else ""
                 pop_badge = get_pop_badge_html(int(row.get("pop_grade10") or 0), int(row.get("pop_pristine10") or 0))
-                img_src = row["image_url"] if row["image_url"] else DEFAULT_CARD_BACK_IMAGE
+                img_src = get_card_image_data_uri(row["image_url"] if row["image_url"] else DEFAULT_CARD_BACK_IMAGE)
 
                 # 1-Click Search URLs for Raw, Grade 10, and PriceCharting
                 raw_ebay_url = generate_ebay_search_url(
@@ -837,7 +845,7 @@ with tab_sniper:
     else:
         st.markdown(f"#### 🎯 Active Sniper Targets ({len(df_sniper)} Watching)")
         for _, s_row in df_sniper.iterrows():
-            s_img = s_row.get("image_url") or DEFAULT_CARD_BACK_IMAGE
+            s_img = get_card_image_data_uri(s_row.get("image_url") or DEFAULT_CARD_BACK_IMAGE)
             target_bid_val = s_row["max_calculated_bid"] or s_row["custom_max_bid"] or (s_row["current_bid"] * 1.5)
             
             st.markdown(f"""<div class="sniper-card">
