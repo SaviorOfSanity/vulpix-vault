@@ -1407,6 +1407,43 @@ def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
     return count, f"Successfully imported {count} cards into your Vault collection!"
 
 
+def get_csv_template_bytes() -> bytes:
+    """Generates a clean starter CSV template bytes."""
+    df_template = pd.DataFrame([
+        {
+            "Release Date": 1999,
+            "Language": "English",
+            "Set / Source": "Base Set",
+            "Card #": "68/102",
+            "1st Ed?": "Yes",
+            "Variant / Stamp / Code": "Shadowless",
+            "Error / Notes": "",
+            "Raw": "Yes",
+            "Pristine 10": "No",
+            "Gem Mint 10": "No",
+            "PSA 10 Value": 240.00,
+            "Avg Raw Price": 27.68,
+        },
+        {
+            "Release Date": 2000,
+            "Language": "English",
+            "Set / Source": "Gym Heroes",
+            "Card #": "65/132",
+            "1st Ed?": "Yes",
+            "Variant / Stamp / Code": "Blaine's Vulpix",
+            "Error / Notes": "",
+            "Raw": "No",
+            "Pristine 10": "No",
+            "Gem Mint 10": "Yes",
+            "PSA 10 Value": 85.00,
+            "Avg Raw Price": 4.50,
+        }
+    ])
+    output = io.StringIO()
+    df_template.to_csv(output, index=False)
+    return output.getvalue().encode("utf-8")
+
+
 EDITION_OPTIONS = [
     "Unlimited",
     "1st Edition",
