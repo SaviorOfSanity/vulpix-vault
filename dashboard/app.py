@@ -308,7 +308,7 @@ with tab_portfolio:
 <div>{pop_badge}</div>
 </div>
 <div style="text-align: center; margin: 10px 0;">
-<img src="{img_src}" style="max-height: 175px; max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" />
+<img src="{img_src}" loading="lazy" decoding="async" style="max-height: 175px; max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" />
 </div>
 <div style="font-weight: 800; font-size: 1.05rem; color: #ffffff;">{row['card_name']}</div>
 <div style="color: #8c8d9a; font-size: 0.82rem; margin-bottom: 8px;">{row['set_name']} • {card_num_str}</div>
@@ -517,16 +517,36 @@ with tab_master_set:
             filtered_master["set_name"].str.contains(m_search, case=False, na=False)
         ]
 
-    # View Mode Toggle
-    m_top1, m_top2 = st.columns([3, 1])
+    # Pagination & Layout Header
+    m_top1, m_top2, m_top3 = st.columns([2.5, 1.5, 1.5])
     with m_top1:
-        st.markdown(f"**Showing {len(filtered_master)} Cards in Catalog**")
+        st.markdown(f"**Found {len(filtered_master)} Cards Matching Filters**")
     with m_top2:
+        page_size_options = [24, 48, 96, "All"]
+        per_page_choice = st.selectbox("Cards per page:", page_size_options, index=0, key="m_per_page")
+    with m_top3:
         master_view_mode = st.radio("Display Layout:", ["🃏 Card Grid View", "📋 Table / List View"], horizontal=True, key="master_v_mode")
+
+    per_page = len(filtered_master) if per_page_choice == "All" or len(filtered_master) == 0 else int(per_page_choice)
+    total_pages = max(1, (len(filtered_master) + per_page - 1) // per_page) if per_page > 0 else 1
+
+    if total_pages > 1:
+        pg_c1, pg_c2, pg_c3 = st.columns([1, 2, 1])
+        with pg_c2:
+            page_num = st.number_input(f"Page (1 to {total_pages})", min_value=1, max_value=total_pages, value=1, step=1, key="m_page_num")
+    else:
+        page_num = 1
+
+    start_idx = (page_num - 1) * per_page
+    end_idx = min(start_idx + per_page, len(filtered_master))
+    page_df = filtered_master.iloc[start_idx:end_idx]
+
+    if total_pages > 1:
+        st.caption(f"Showing cards **{start_idx + 1}–{end_idx}** of **{len(filtered_master)}** (Page {page_num} of {total_pages})")
 
     if "Card Grid" in master_view_mode:
         m_cols = st.columns(4)
-        for idx, row in filtered_master.iterrows():
+        for idx, (_, row) in enumerate(page_df.iterrows()):
             col_target = m_cols[idx % 4]
             with col_target:
                 is_owned = row["is_owned"]
@@ -571,7 +591,7 @@ with tab_master_set:
 <div style="display: flex; gap: 3px; align-items: center; flex-wrap: wrap;">{ed_badge} {err_badge} {status_badge}</div>
 </div>
 <div style="text-align: center; margin: 8px 0;">
-<img src="{img_src}" style="max-height: 155px; max-width: 100%; border-radius: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);" />
+<img src="{img_src}" loading="lazy" decoding="async" style="max-height: 155px; max-width: 100%; border-radius: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);" />
 </div>
 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
 <div style="font-weight: 800; font-size: 0.92rem; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['card_name']}</div>

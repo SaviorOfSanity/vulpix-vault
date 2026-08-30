@@ -345,46 +345,22 @@ def get_psa_cert_lookup_url(cert_number: str) -> str:
 @lru_cache(maxsize=1000)
 def get_card_image_data_uri(img_path_or_url: str) -> str:
     """
-    If img_path_or_url is a local file in dashboard/static/cards, returns fast base64 data URI.
-    If it is an external URL https://..., returns the URL directly.
+    Returns high-speed static HTTP URL (e.g. app/static/cards/...) for local scans,
+    or external HTTPS URL directly. Eliminates 70MB of base64 bloat from the DOM.
     """
     if not img_path_or_url:
         return DEFAULT_CARD_BACK_IMAGE
 
-    # Check direct file path
-    if os.path.exists(img_path_or_url):
-        try:
-            with open(img_path_or_url, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode("utf-8")
-                mime = "image/png" if img_path_or_url.endswith(".png") else "image/jpeg"
-                return f"data:{mime};base64,{b64}"
-        except Exception:
-            pass
+    str_path = str(img_path_or_url).strip()
+    if str_path.startswith("http://") or str_path.startswith("https://") or str_path.startswith("data:image"):
+        return str_path
 
-    # Check relative to static directory
-    static_file = os.path.join(os.path.dirname(__file__), "static", "cards", os.path.basename(img_path_or_url))
-    if os.path.exists(static_file):
-        try:
-            with open(static_file, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode("utf-8")
-                mime = "image/png" if static_file.endswith(".png") else "image/jpeg"
-                return f"data:{mime};base64,{b64}"
-        except Exception:
-            pass
+    # If it's a local card file, serve via Streamlit static route
+    base_name = os.path.basename(str_path)
+    if base_name:
+        return f"app/static/cards/{base_name}"
 
-    # Also check if filename matches without path
-    base_name = os.path.basename(img_path_or_url)
-    alt_file = os.path.join("dashboard", "static", "cards", base_name)
-    if os.path.exists(alt_file):
-        try:
-            with open(alt_file, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode("utf-8")
-                mime = "image/png" if alt_file.endswith(".png") else "image/jpeg"
-                return f"data:{mime};base64,{b64}"
-        except Exception:
-            pass
-
-    return img_path_or_url
+    return str_path
 
 
 def download_all_card_images_locally() -> Tuple[int, str]:
