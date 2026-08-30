@@ -193,10 +193,15 @@ with tab_portfolio:
     if df_col.empty:
         st.info("💡 Your Vault is currently empty. Add cards above or sync from your Google Sheet in Tab 2!")
     else:
-        v_col1, v_col2 = st.columns([3, 1])
+        v_col1, v_col2, v_col3 = st.columns([2, 1.2, 1.2])
         with v_col1:
             st.markdown(f"#### 🏆 Your Collection ({len(df_col)} Items)")
         with v_col2:
+            if st.button("✨ Auto-Enrich Vault", key="btn_enrich_vault", use_container_width=True):
+                count_enr, msg_enr = auto_enrich_master_catalog(force_all=True)
+                st.success(msg_enr)
+                st.rerun()
+        with v_col3:
             view_mode = st.radio("Display Layout:", ["🃏 Card Grid View", "📋 Table / List View"], horizontal=True, key="vault_v_mode")
 
         if "Card Grid" in view_mode:
