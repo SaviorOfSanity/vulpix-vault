@@ -1494,10 +1494,25 @@ def load_collection_df() -> pd.DataFrame:
                 else:
                     master_floor = float(m_info.get("est_raw_price") or 0.0) * (2.0 if grade_num >= 9.0 else 1.2)
 
-        matched = df_market[
-            (df_market["card_name"].str.contains(card_name_str, case=False, na=False, regex=False)) &
-            (df_market["condition_type"] == cond)
-        ] if not df_market.empty else pd.DataFrame()
+        # Match market sales on both card_name and set_name / card_number
+        matched = pd.DataFrame()
+        if not df_market.empty:
+            m_set_clean = normalize_str(str(row["set_name"]))
+            m_num_clean = extract_base_number(str(row["card_number"]))
+            cand = df_market[df_market["condition_type"] == cond]
+            if not cand.empty:
+                def _is_market_match(m_row):
+                    t = str(m_row.get("title", "")).lower()
+                    c = str(m_row.get("card_name", "")).lower()
+                    if "alolan" in card_name_str.lower() and "alolan" not in t and "alolan" not in c:
+                        return False
+                    if m_num_clean and m_num_clean not in t:
+                        return False
+                    if m_set_clean and len(m_set_clean) > 3 and m_set_clean not in normalize_str(t):
+                        return False
+                    return True
+
+                matched = cand[cand.apply(_is_market_match, axis=1)]
 
         if cond == "Graded" and not matched.empty:
             matched = matched[
@@ -1509,9 +1524,11 @@ def load_collection_df() -> pd.DataFrame:
             recent_prices = matched.head(5)["total_price"].tolist()
             current_val = round(sum(recent_prices) / len(recent_prices), 2)
         elif master_floor > 0:
-            current_val = master_floor
+            current_val = max(master_floor, cost) if cost > 0 else master_floor
+        elif cost > 0:
+            current_val = cost
         else:
-            current_val = round(cost * 1.05, 2)
+            current_val = 2.00
 
         gain = round(current_val - cost, 2)
         roi = round((gain / cost) * 100, 1) if cost > 0 else 0.0

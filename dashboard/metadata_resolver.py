@@ -6,6 +6,7 @@ Ensures 100% Vulpix verification - NEVER matches non-Vulpix cards.
 """
 
 import json
+import os
 import re
 import urllib.parse
 import urllib.request
@@ -537,81 +538,108 @@ VULPIX_KNOWN_SET_INDEX = {
     },
     ("galactics conquest", "16"): {
         "card_name": "Vulpix",
+        "card_number": "016/096",
         "release_year": 2008,
         "rarity": "Common",
-        "image_url": "https://images.pokemontcg.io/dp7/16_hires.png",
+        "image_url": "dashboard/static/cards/vulpix-galactics-conquest-016-096.jpg",
     },
     ("galactics conquest", "17"): {
         "card_name": "Vulpix",
+        "card_number": "017/096",
         "release_year": 2008,
         "rarity": "Common",
-        "image_url": "https://images.pokemontcg.io/dp7/16_hires.png",
+        "image_url": "dashboard/static/cards/vulpix-galactics-conquest-017-096.jpg",
     },
     ("tag all stars", "17"): {
         "card_name": "Vulpix",
+        "card_number": "017/173",
         "release_year": 2019,
         "rarity": "Common",
-        "image_url": "https://images.pokemontcg.io/sm12a/17_hires.png",
+        "image_url": "dashboard/static/cards/vulpix-tag-all-stars-017-173.jpg",
     },
     ("tag all stars", "32"): {
         "card_name": "Alolan Vulpix",
+        "card_number": "032/173",
         "release_year": 2019,
         "rarity": "Common",
-        "image_url": "https://images.pokemontcg.io/sm12a/32_hires.png",
+        "image_url": "dashboard/static/cards/alolan-vulpix-tag-all-stars-032-173.jpg",
     },
     ("tag bolt", "14"): {
         "card_name": "Vulpix",
+        "card_number": "014/095",
         "release_year": 2018,
         "rarity": "Common",
-        "image_url": "https://images.pokemontcg.io/sm9/14_hires.png",
+        "image_url": "dashboard/static/cards/vulpix-tag-bolt-014-095.jpg",
     },
     ("vmax rising", "12"): {
         "card_name": "Vulpix",
+        "card_number": "012/070",
         "release_year": 2020,
         "rarity": "Common",
-        "image_url": "https://images.pokemontcg.io/s1a/12_hires.png",
+        "image_url": "dashboard/static/cards/vulpix-vmax-rising-012-070.jpg",
     },
     ("soulsilver collection", "12"): {
         "card_name": "Vulpix",
+        "card_number": "012/070",
         "release_year": 2009,
         "rarity": "Common",
-        "image_url": "https://images.pokemontcg.io/hgss1/88_hires.png",
+        "image_url": "dashboard/static/cards/vulpix-soulsilver-collection-012-070.jpg",
     },
     ("wind from the sea", "21"): {
         "card_name": "Vulpix",
+        "card_number": "021/087",
         "release_year": 2002,
         "rarity": "Common",
-        "image_url": "https://images.pokemontcg.io/ecard2/116_hires.png",
+        "image_url": "dashboard/static/cards/wind_from_the_sea_021.jpg",
     },
     ("world champions pack", "9"): {
         "card_name": "Vulpix",
+        "card_number": "009/108",
         "release_year": 2007,
         "rarity": "Common",
-        "image_url": "https://images.pokemontcg.io/ex11/91_hires.png",
+        "image_url": "dashboard/static/cards/vulpix-world-champions-pack-009-108.jpg",
+    },
+    ("world champions pack", "009"): {
+        "card_name": "Vulpix",
+        "card_number": "009/108",
+        "release_year": 2007,
+        "rarity": "Common",
+        "image_url": "dashboard/static/cards/vulpix-world-champions-pack-009-108.jpg",
+    },
+    ("mysterious treasures", "107"): {
+        "card_name": "Vulpix",
+        "card_number": "107/123",
+        "release_year": 2007,
+        "rarity": "Common",
+        "image_url": "dashboard/static/cards/vulpix-mysterious-treasures-107-123.jpg",
     },
     ("incandescent arcana", "22"): {
         "card_name": "Alolan Vulpix V",
+        "card_number": "022/068",
         "release_year": 2022,
         "rarity": "Double Rare",
-        "image_url": "https://images.pokemontcg.io/swsh12/33_hires.png",
+        "image_url": "dashboard/static/cards/alolan-vulpix-v-incandescent-arcana-022-068.jpg",
     },
     ("incandescent arcana", "23"): {
         "card_name": "Alolan Vulpix VSTAR",
+        "card_number": "023/068",
         "release_year": 2022,
         "rarity": "Triple Rare",
-        "image_url": "https://images.pokemontcg.io/swsh12/34_hires.png",
+        "image_url": "dashboard/static/cards/alolan-vulpix-vstar-incandescent-arcana-023-068.jpg",
     },
     ("incandescent arcana", "77"): {
         "card_name": "Alolan Vulpix V (Full Art)",
+        "card_number": "077/068",
         "release_year": 2022,
         "rarity": "Super Rare",
-        "image_url": "https://images.pokemontcg.io/swsh12/173_hires.png",
+        "image_url": "dashboard/static/cards/alolan-vulpix-v-incandescent-arcana-077-068.jpg",
     },
     ("incandescent arcana", "87"): {
         "card_name": "Alolan Vulpix VSTAR (Rainbow Rare)",
+        "card_number": "087/068",
         "release_year": 2022,
         "rarity": "Hyper Rare",
-        "image_url": "https://images.pokemontcg.io/swsh12/197_hires.png",
+        "image_url": "dashboard/static/cards/alolan-vulpix-vstar-incandescent-arcana-087-068.jpg",
     },
 
     # --- Japanese Promos & Holy Grails (Poncho Pikachu, Special Box, SM-P) ---
@@ -859,13 +887,68 @@ def query_pokemontcg_api(set_name: str, card_number: str, card_name: Optional[st
     return None
 
 
+def find_local_image_for_card(card_name: str, set_name: str, card_number: str) -> str:
+    """
+    Finds the exact matching local image in dashboard/static/cards/
+    based on set name and card number from the 176 TCGCollector scans.
+    """
+    clean_set = re.sub(r"[^\w\s]", "", str(set_name).lower()).strip()
+    clean_set_words = [w for w in clean_set.split() if w not in ["the", "of", "and", "set", "pack", "series", "pokemon", "card"]]
+    num_str = extract_base_number(str(card_number)).lstrip("0") or "0"
+
+    img_dir = os.path.join(os.path.dirname(__file__), "static", "cards")
+    if not os.path.exists(img_dir):
+        alt_dir = os.path.join("dashboard", "static", "cards")
+        if os.path.exists(alt_dir):
+            img_dir = alt_dir
+        else:
+            return ""
+
+    best_match = None
+    best_score = 0
+    for fname in os.listdir(img_dir):
+        if not fname.endswith((".jpg", ".png", ".webp")):
+            continue
+        fname_lower = fname.lower()
+
+        # Match number
+        num_match = False
+        num_patterns = [
+            f"-{num_str}-", f"_{num_str}_", f"_{num_str}.", f"-{num_str}.",
+            f"-{num_str.zfill(2)}-", f"-{num_str.zfill(3)}-", f"_{num_str.zfill(3)}_", f"-{num_str.zfill(3)}."
+        ]
+        for np in num_patterns:
+            if np in fname_lower:
+                num_match = True
+                break
+
+        if not num_match and num_str != "0":
+            continue
+
+        score = 10
+        for w in clean_set_words:
+            if w in fname_lower:
+                score += 3
+
+        if "alolan" in card_name.lower() and "alolan" in fname_lower:
+            score += 5
+        elif "alolan" not in card_name.lower() and "alolan" not in fname_lower:
+            score += 2
+
+        if score > best_score:
+            best_score = score
+            best_match = f"dashboard/static/cards/{fname}"
+
+    return best_match or ""
+
+
 def resolve_card_metadata(
     set_name: str, card_number: str, card_name: Optional[str] = None, allow_network: bool = False
 ) -> Dict[str, Any]:
     """
-    Authoritative resolver: checks curated 200+ Vulpix index first,
+    Authoritative resolver: checks curated 200+ Vulpix index and local 176 TCGCollector scans first,
     then optionally queries live Pokémon TCG databases to fill in missing names and images.
-    Guarantees that a non-Vulpix image (like Magikarp) is NEVER returned.
+    Guarantees that a non-Vulpix image (like Magikarp, Charizard, or Totodile) is NEVER returned.
     """
     clean_set_norm = normalize_str(set_name)
     clean_num_norm = extract_base_number(card_number)
@@ -885,8 +968,11 @@ def resolve_card_metadata(
                 "source": "curated_master_index",
             }
 
-    # 2. Live API lookup from Pokémon TCG database if network enabled
-    if allow_network:
+    # 2. Local 176 TCGCollector Scans Match
+    local_img = find_local_image_for_card(card_name or "Vulpix", set_name, card_number)
+
+    # 3. Live API lookup from Pokémon TCG database if network enabled and no local image
+    if allow_network and not local_img:
         api_result = query_pokemontcg_api(set_name, card_number, card_name)
         if api_result:
             return {
@@ -899,25 +985,26 @@ def resolve_card_metadata(
                 "source": "pokemon_tcg_api",
             }
 
-    # 3. Fallback: intelligent name derivation based on set
+    # 4. Fallback: intelligent name derivation based on set
     inferred_name = card_name or "Vulpix"
-    img_fallback = DEFAULT_CARD_BACK_IMAGE
+    img_fallback = local_img or DEFAULT_CARD_BACK_IMAGE
 
-    if "base set" in clean_set_norm and clean_num_norm in ["68"]:
-        img_fallback = "https://images.pokemontcg.io/base1/68_hires.png"
-    elif "gym heroes" in clean_set_norm or "gym challenge" in clean_set_norm:
-        if clean_num_norm in ["65", "66"]:
-            inferred_name = "Blaine's Vulpix"
-            img_fallback = "https://images.pokemontcg.io/gym1/65_hires.png"
-        elif clean_num_norm in ["73"]:
-            inferred_name = "Brock's Vulpix"
-            img_fallback = "https://images.pokemontcg.io/gym1/73_hires.png"
-    elif "destiny" in clean_set_norm and clean_num_norm in ["70"]:
-        inferred_name = "Light Vulpix"
-        img_fallback = "https://images.pokemontcg.io/neo4/70_hires.png"
-    elif "delta" in clean_set_norm:
-        inferred_name = "Vulpix (Delta Species)"
-        img_fallback = "https://images.pokemontcg.io/ex11/91_hires.png"
+    if not local_img:
+        if "base set" in clean_set_norm and clean_num_norm in ["68"]:
+            img_fallback = "https://images.pokemontcg.io/base1/68_hires.png"
+        elif "gym heroes" in clean_set_norm or "gym challenge" in clean_set_norm:
+            if clean_num_norm in ["65", "66"]:
+                inferred_name = "Blaine's Vulpix"
+                img_fallback = "https://images.pokemontcg.io/gym1/65_hires.png"
+            elif clean_num_norm in ["73"]:
+                inferred_name = "Brock's Vulpix"
+                img_fallback = "https://images.pokemontcg.io/gym1/73_hires.png"
+        elif "destiny" in clean_set_norm and clean_num_norm in ["70"]:
+            inferred_name = "Light Vulpix"
+            img_fallback = "https://images.pokemontcg.io/neo4/70_hires.png"
+        elif "delta" in clean_set_norm:
+            inferred_name = "Vulpix (Delta Species)"
+            img_fallback = "https://images.pokemontcg.io/ex11/91_hires.png"
     elif any(k in clean_set_norm for k in ["silver tempest", "guardians rising", "lost thunder"]):
         inferred_name = "Alolan Vulpix"
         img_fallback = "https://images.pokemontcg.io/swsh12/33_hires.png"
