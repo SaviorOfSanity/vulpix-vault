@@ -256,7 +256,10 @@ def scrape_ebay_listings(query: str = "Vulpix Pokemon card (graded, PSA 10, raw,
             img_elem = item.select_one(".s-item__image-img img, .s-item__image img, img")
             image_url = img_elem.get("src") or img_elem.get("data-src") or "" if img_elem else ""
 
-            listing_type = "Auction" if item.select_one(".s-item__bids") else "Buy It Now"
+            bids_elem = item.select_one(".s-item__bidCount, .s-item__bids, .s-item__dynamic")
+            item_text = item.get_text()
+            has_bids = bool(bids_elem) or bool(re.search(r"\b\d+\s*bids?\b", item_text, re.I))
+            listing_type = "Auction" if has_bids else "Buy It Now"
 
             condition_type, grading_co, grade, grade_label = extract_special_grading_details(title)
             meta = extract_card_metadata(title)

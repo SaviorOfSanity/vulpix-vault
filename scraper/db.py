@@ -175,6 +175,18 @@ def init_db(db_path: Optional[str] = None) -> None:
         ]:
             _add_column_if_missing(cursor, "my_collection", col, ctype)
 
+        for col, ctype in [
+            ("edition", "TEXT DEFAULT 'Unlimited'"),
+            ("grading_company", "TEXT DEFAULT 'RAW'"),
+            ("grade", "REAL DEFAULT 0.0"),
+            ("grade_label", "TEXT DEFAULT 'Raw Single'"),
+            ("condition_type", "TEXT DEFAULT 'Raw'"),
+            ("fair_market_value", "REAL DEFAULT 0.0"),
+            ("max_bid_target", "REAL DEFAULT 0.0"),
+            ("snipe_mode", "TEXT DEFAULT 'amazing_deal'"),
+        ]:
+            _add_column_if_missing(cursor, "ebay_sniper_watchlist", col, ctype)
+
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_master_search ON master_set_catalog(card_name, set_name, language, edition);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_lookup ON market_sales(card_name, grading_company, grade, condition_type);")
 

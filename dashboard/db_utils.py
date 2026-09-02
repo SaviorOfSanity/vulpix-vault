@@ -198,6 +198,18 @@ def ensure_tables_exist():
         ]:
             _add_column_if_missing(cursor, "my_collection", col, ctype)
 
+        for col, ctype in [
+            ("edition", "TEXT DEFAULT 'Unlimited'"),
+            ("grading_company", "TEXT DEFAULT 'RAW'"),
+            ("grade", "REAL DEFAULT 0.0"),
+            ("grade_label", "TEXT DEFAULT 'Raw Single'"),
+            ("condition_type", "TEXT DEFAULT 'Raw'"),
+            ("fair_market_value", "REAL DEFAULT 0.0"),
+            ("max_bid_target", "REAL DEFAULT 0.0"),
+            ("snipe_mode", "TEXT DEFAULT 'amazing_deal'"),
+        ]:
+            _add_column_if_missing(cursor, "ebay_sniper_watchlist", col, ctype)
+
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_master_search ON master_set_catalog(card_name, set_name, language, edition);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_lookup ON market_sales(card_name, grading_company, grade, condition_type);")
 
@@ -1070,11 +1082,15 @@ def add_to_sniper_watchlist(item: Dict[str, Any]) -> int:
             INSERT INTO ebay_sniper_watchlist (
                 listing_id, card_name, title, listing_url, image_url,
                 auction_end_time, current_bid, shipping_cost, target_bid_mode,
-                custom_max_bid, max_calculated_bid, status, notes
+                custom_max_bid, max_calculated_bid, status, notes,
+                edition, grading_company, grade, grade_label, condition_type,
+                fair_market_value, max_bid_target, snipe_mode
             ) VALUES (
                 :listing_id, :card_name, :title, :listing_url, :image_url,
                 :auction_end_time, :current_bid, :shipping_cost, :target_bid_mode,
-                :custom_max_bid, :max_calculated_bid, :status, :notes
+                :custom_max_bid, :max_calculated_bid, :status, :notes,
+                :edition, :grading_company, :grade, :grade_label, :condition_type,
+                :fair_market_value, :max_bid_target, :snipe_mode
             )
             ON CONFLICT(listing_id) DO UPDATE SET
                 current_bid = excluded.current_bid,
@@ -1083,7 +1099,15 @@ def add_to_sniper_watchlist(item: Dict[str, Any]) -> int:
                 custom_max_bid = excluded.custom_max_bid,
                 max_calculated_bid = excluded.max_calculated_bid,
                 status = excluded.status,
-                notes = excluded.notes;
+                notes = excluded.notes,
+                edition = excluded.edition,
+                grading_company = excluded.grading_company,
+                grade = excluded.grade,
+                grade_label = excluded.grade_label,
+                condition_type = excluded.condition_type,
+                fair_market_value = excluded.fair_market_value,
+                max_bid_target = excluded.max_bid_target,
+                snipe_mode = excluded.snipe_mode;
         """, {
             "listing_id": str(item.get("listing_id", "")).strip(),
             "card_name": str(item.get("card_name", "Vulpix")).strip(),
@@ -1093,11 +1117,19 @@ def add_to_sniper_watchlist(item: Dict[str, Any]) -> int:
             "auction_end_time": str(item.get("auction_end_time", "")).strip(),
             "current_bid": float(item.get("current_bid", 0.0)),
             "shipping_cost": float(item.get("shipping_cost", 0.0)),
-            "target_bid_mode": str(item.get("target_bid_mode", "amazing_deal")).strip(),
+            "target_bid_mode": str(item.get("snipe_mode") or item.get("target_bid_mode", "amazing_deal")).strip(),
             "custom_max_bid": float(item.get("custom_max_bid", 0.0)) if item.get("custom_max_bid") else None,
-            "max_calculated_bid": float(item.get("max_calculated_bid", 0.0)) if item.get("max_calculated_bid") else None,
+            "max_calculated_bid": float(item.get("max_bid_target") or item.get("max_calculated_bid", 0.0)) if (item.get("max_bid_target") or item.get("max_calculated_bid")) else None,
             "status": str(item.get("status", "watching")).strip(),
             "notes": str(item.get("notes", "")).strip(),
+            "edition": str(item.get("edition", "Unlimited")).strip(),
+            "grading_company": str(item.get("grading_company", "RAW")).strip(),
+            "grade": float(item.get("grade", 0.0)),
+            "grade_label": str(item.get("grade_label", "Raw Single")).strip(),
+            "condition_type": str(item.get("condition_type", "Raw")).strip(),
+            "fair_market_value": float(item.get("fair_market_value", 0.0)),
+            "max_bid_target": float(item.get("max_bid_target", 0.0)),
+            "snipe_mode": str(item.get("snipe_mode", "amazing_deal")).strip(),
         })
         return cursor.lastrowid or 0
 
@@ -2162,23 +2194,73 @@ def appraise_and_add_deal_listing(url_or_id: str, listing_price: float = 0.0) ->
     }
 
 
-def load_deals_df(deal_filter: Optional[str] = None, condition_filter: Optional[str] = None) -> pd.DataFrame:
-    """Load AI-appraised deals with multi-tier and condition filters."""
+def load_deals_df(
+    deal_filter: Optional[str] = None,
+    condition_filter: Optional[str] = None,
+    listing_type_filter: Optional[str] = None,
+    missing_only: bool = False,
+) -> pd.DataFrame:
+    """
+    Load AI-appraised deals strictly enforcing positive discounts and
+    prioritizing PSA 10, CGC 10, CGC Pristine 10, and BGS 10 slabs.
+    """
     df = load_market_sales_df()
     if df.empty:
         return df
 
-    if condition_filter == "Grade 10 Slabs Only":
-        df = df[(df["condition_type"] == "Graded") & (df["grade"] == 10.0)]
+    # Ensure numeric discount percentage
+    df["discount_percentage"] = pd.to_numeric(df["discount_percentage"], errors="coerce").fillna(0.0)
+
+    # 1. Condition & Slab Tier Filter (Prioritizing PSA 10 & CGC 10 / Pristine)
+    if condition_filter and ("Gem Mint" in condition_filter or "Grade 10" in condition_filter or "Pristine" in condition_filter):
+        # Matches PSA 10, CGC 10, CGC Pristine 10, BGS 10, Black Label 10
+        is_ten = (
+            (df["condition_type"] == "Graded") &
+            (
+                (df["grade"] == 10.0) |
+                (df["grade_label"].astype(str).str.contains(r"(?i)pristine|black\s*label|gem\s*mint|10", na=False))
+            )
+        )
+        df = df[is_ten]
+    elif condition_filter == "All Graded Slabs (PSA / CGC / BGS)":
+        df = df[df["condition_type"] == "Graded"]
     elif condition_filter == "Raw Singles Only":
         df = df[df["condition_type"] == "Raw"]
 
+    # 2. Listing Type Filter (Auctions with Bids vs Buy It Now)
+    if listing_type_filter == "🎯 Live Auctions Only":
+        df = df[df["listing_type"].astype(str).str.contains(r"(?i)auction", na=False)]
+    elif listing_type_filter == "⚡ Buy It Now Only":
+        df = df[~df["listing_type"].astype(str).str.contains(r"(?i)auction", na=False)]
+
+    # 3. Deal Rating & Strict Positive Discount Filtering
     if deal_filter == "amazing_deal":
-        return df[df["deal_rating"] == "amazing_deal"]
+        df = df[(df["discount_percentage"] >= 40.0) & (df["discount_percentage"] > 0)]
     elif deal_filter == "great_and_amazing":
-        return df[df["deal_rating"].isin(["amazing_deal", "great_deal"])]
+        df = df[(df["discount_percentage"] >= 25.0) & (df["discount_percentage"] > 0)]
     elif deal_filter == "all_deals":
-        return df[df["deal_rating"].isin(["amazing_deal", "great_deal", "good_deal"])]
+        df = df[(df["discount_percentage"] >= 10.0) & (df["discount_percentage"] > 0)]
+    elif deal_filter == "positive_only":
+        df = df[df["discount_percentage"] > 0]
+
+    # 4. Filter for Cards Missing from Vault
+    if missing_only:
+        df_col = load_collection_df()
+        if not df_col.empty:
+            owned_names = set(df_col["card_name"].dropna().astype(str).str.lower().str.strip())
+            def _is_missing(r):
+                c_name = str(r.get("card_name", "")).lower().strip()
+                t = str(r.get("title", "")).lower()
+                for o in owned_names:
+                    if len(o) > 4 and (o in c_name or o in t):
+                        return False
+                return True
+            df = df[df.apply(_is_missing, axis=1)]
+
+    # Always sort best discounts first!
+    if not df.empty and "discount_percentage" in df.columns:
+        df = df.sort_values(by="discount_percentage", ascending=False)
+
     return df
 
 

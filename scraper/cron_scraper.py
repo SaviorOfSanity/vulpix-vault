@@ -27,12 +27,15 @@ from seed_data import seed_database_if_empty
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 SEARCH_QUERIES = [
-    "Vulpix (PSA 10, CGC 10, BGS 10, Pristine, Black Label)",
-    "Vulpix Pokemon card 1st edition (raw, PSA, CGC)",
-    "Vulpix shadowless Pokemon card",
-    "Vulpix error Pokemon card (HP 50, no rarity)",
-    "Japanese Vulpix Pokemon card (CoroCoro, Vending, Web)",
-    "Alolan Vulpix VSTAR V (PSA 10, raw)",
+    "Vulpix PSA 10",
+    "Vulpix CGC 10 Pristine",
+    "Vulpix CGC 10 Gem Mint",
+    "Alolan Vulpix PSA 10",
+    "Alolan Vulpix CGC 10 Pristine",
+    "Vulpix BGS 10 Black Label",
+    "Vulpix 1st Edition (PSA 10, CGC 10)",
+    "Vulpix Shadowless (PSA 10, CGC 10)",
+    "Vulpix (PSA 10, CGC 10, Pristine 10)",
 ]
 
 

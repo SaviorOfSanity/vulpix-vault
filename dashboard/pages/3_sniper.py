@@ -117,12 +117,23 @@ if df_sniper.empty:
 else:
     st.markdown(f"#### 🔭 Active Watchlist Targets ({len(df_sniper)} Auctions)")
     for s_idx, s_row in df_sniper.iterrows():
+        s_title = s_row.get("title", "eBay Auction")
+        s_card = s_row.get("card_name", "Vulpix")
+        s_ed = s_row.get("edition") or "Unlimited"
+        s_grader = s_row.get("grading_company") or "RAW"
+        s_label = s_row.get("grade_label") or "Raw Single"
+        s_curr = float(s_row.get("current_bid") or 0.0)
+        s_fair = float(s_row.get("fair_market_value") or s_row.get("max_calculated_bid") or 25.0)
+        s_max = float(s_row.get("max_bid_target") or s_row.get("custom_max_bid") or s_row.get("max_calculated_bid") or 15.0)
+        s_url = s_row.get("listing_url") or "#"
+        s_id = s_row.get("id")
+
         s_box = f"""<div class="slab-box" style="margin-bottom: 12px; padding: 14px 18px;">
 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
 <div>
-<div style="font-weight: 800; font-size: 1.05rem; color: #ffffff;">{s_row['title']}</div>
+<div style="font-weight: 800; font-size: 1.05rem; color: #ffffff;">{s_title}</div>
 <div style="color: #8c8d9a; font-size: 0.82rem; margin-top: 2px;">
-{s_row['card_name']} • {s_row['edition']} • {s_row['grading_company']} {s_row['grade_label']}
+{s_card} • {s_ed} • {s_grader} {s_label}
 </div>
 </div>
 <span style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #f87171; padding: 2px 10px; border-radius: 12px; font-weight: 800; font-size: 0.75rem;">
@@ -130,19 +141,20 @@ SNIPING
 </span>
 </div>
 <div style="display: flex; justify-content: space-between; align-items: center; background: #111217; padding: 10px 14px; border-radius: 8px; margin: 10px 0;">
-<div><span style="color: #8c8d9a; font-size: 0.8rem;">Current Price:</span> <strong style="color: #fff; font-size: 0.95rem;">${s_row['current_bid']:,.2f}</strong></div>
-<div><span style="color: #8c8d9a; font-size: 0.8rem;">Fair Market Value:</span> <strong style="color: #ffd591; font-size: 0.95rem;">${s_row['fair_market_value']:,.2f}</strong></div>
-<div><span style="color: #8c8d9a; font-size: 0.8rem;">Your Max Bid Limit:</span> <strong style="color: #4ade80; font-size: 0.95rem;">${s_row['max_bid_target']:,.2f}</strong></div>
+<div><span style="color: #8c8d9a; font-size: 0.8rem;">Current Price:</span> <strong style="color: #fff; font-size: 0.95rem;">${s_curr:,.2f}</strong></div>
+<div><span style="color: #8c8d9a; font-size: 0.8rem;">Fair Market Value:</span> <strong style="color: #ffd591; font-size: 0.95rem;">${s_fair:,.2f}</strong></div>
+<div><span style="color: #8c8d9a; font-size: 0.8rem;">Your Max Bid Limit:</span> <strong style="color: #4ade80; font-size: 0.95rem;">${s_max:,.2f}</strong></div>
 </div>
 <div style="display: flex; justify-content: space-between; align-items: center;">
-<a href="{s_row['listing_url']}" target="_blank" class="btn-ebay" style="padding: 4px 14px; font-size: 0.82rem;">
+<a href="{s_url}" target="_blank" class="btn-ebay" style="padding: 4px 14px; font-size: 0.82rem;">
 🔗 View Live on eBay ↗
 </a>
 </div>
 </div>"""
         st.markdown(s_box, unsafe_allow_html=True)
-        if st.button("🗑️ Remove from Watchlist", key=f"del_sn_{s_row['id']}"):
-            delete_from_sniper_watchlist(s_row["id"])
-            clear_dashboard_cache()
-            st.success("Target removed from watchlist!")
+        if st.button("🗑️ Remove from Watchlist", key=f"del_sn_{s_id}"):
+            t0 = time.perf_counter()
+            delete_from_sniper_watchlist(s_id)
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            st.session_state["sniper_flash_msg"] = f"🗑️ Target removed in {elapsed_ms:.1f}ms!"
             st.rerun()
