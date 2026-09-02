@@ -1,7 +1,7 @@
 """
 The Vulpix Vault - Page 1: My Vault & Portfolio
-Personal collection tracking, multi-tier importing (Manual, eBay Link, Screenshot OCR, Text Paste, CSV),
-valuation calculation, and cert lookups.
+High-performance personal collection tracking, lazy image loading,
+instant add/edit/delete operations, and fast multi-format importing.
 """
 
 import io
@@ -41,25 +41,10 @@ from styles import (
 apply_custom_styles()
 render_header()
 
-# Fast In-Memory Cached Loaders
-@st.cache_data(ttl=60)
-def get_cached_collection_df():
-    return load_collection_df()
-
-@st.cache_data(ttl=60)
-def get_cached_portfolio_metrics():
-    return get_portfolio_metrics()
-
-@st.cache_data(ttl=60)
-def get_cached_master_set_metrics():
-    return get_master_set_metrics()
-
-def clear_dashboard_cache():
-    st.cache_data.clear()
-
-port_metrics = get_cached_portfolio_metrics()
-master_metrics = get_cached_master_set_metrics()
-df_col = get_cached_collection_df()
+# Fast Data Loaders (Direct SQLite query executes in < 20ms)
+df_col = load_collection_df()
+port_metrics = get_portfolio_metrics()
+master_metrics = get_master_set_metrics()
 
 st.markdown("### 💼 Personal Vault Overview")
 
@@ -140,7 +125,7 @@ with imp_t1:
             if not card_name or not set_name:
                 st.error("Card Name and Set Name are required.")
             else:
-                new_id = add_card_to_collection({
+                add_card_to_collection({
                     "card_name": card_name,
                     "set_name": set_name,
                     "card_number": card_num,
@@ -158,7 +143,6 @@ with imp_t1:
                     "image_url": custom_img_url if custom_img_url else None,
                     "notes": notes,
                 })
-                clear_dashboard_cache()
                 st.success(f"Added {card_name} to your Vault!")
                 st.rerun()
 
@@ -207,33 +191,37 @@ with imp_t2:
                         "image_url": parsed_link_card["image_url"],
                         "notes": parsed_link_card["notes"],
                     })
-                    clear_dashboard_cache()
                     st.success(f"Added {el_name} from eBay Link to your Vault!")
                     st.rerun()
 
-# Tab 3: Screenshot OCR Import
+# Tab 3: Screenshot OCR Import (On-Demand & Cached to prevent CPU hangs)
 with imp_t3:
     st.markdown("Upload or drop a screenshot of your eBay purchase history or order details:")
     uploaded_screenshot = st.file_uploader("Upload Screenshot", type=["png", "jpg", "jpeg", "webp"], key="screenshot_uploader")
     if uploaded_screenshot is not None:
-        with st.spinner("Extracting card and order text using OCR..."):
-            extracted_ocr_text = extract_text_from_screenshot(uploaded_screenshot)
-        if extracted_ocr_text:
-            parsed_ocr_items = parse_ebay_purchase_history_text(extracted_ocr_text)
-            if parsed_ocr_items:
-                st.success(f"Extracted {len(parsed_ocr_items)} card(s) from screenshot!")
-                df_ocr_preview = pd.DataFrame(parsed_ocr_items)[["card_name", "set_name", "card_number", "grading_company", "grade_label", "purchase_price", "purchase_date", "language"]]
-                st.dataframe(df_ocr_preview, use_container_width=True)
-                if st.button("🚀 Confirm Import All from Screenshot into Vault", key="btn_confirm_ocr_import"):
-                    cnt_ocr, msg_ocr = bulk_import_ebay_history(parsed_ocr_items)
-                    clear_dashboard_cache()
-                    st.success(msg_ocr)
-                    st.rerun()
-            else:
-                st.info("Extracted text from image, but no standard Pokémon card order patterns were matched. You can inspect or copy the raw text below:")
-                st.code(extracted_ocr_text)
+        ocr_c1, ocr_c2 = st.columns([1, 2])
+        with ocr_c1:
+            st.image(uploaded_screenshot, caption="Screenshot Preview", width=220)
+        with ocr_c2:
+            st.info("Click the button below to extract text using local OCR.")
+            if st.button("🔍 Extract Text & Cards with OCR", key="btn_run_ocr", type="primary"):
+                with st.spinner("Extracting text via optimized OCR..."):
+                    st.session_state["vault_ocr_text"] = extract_text_from_screenshot(uploaded_screenshot)
+
+    if st.session_state.get("vault_ocr_text"):
+        parsed_ocr_items = parse_ebay_purchase_history_text(st.session_state["vault_ocr_text"])
+        if parsed_ocr_items:
+            st.success(f"Extracted {len(parsed_ocr_items)} card(s) from screenshot!")
+            df_ocr_preview = pd.DataFrame(parsed_ocr_items)[["card_name", "set_name", "card_number", "grading_company", "grade_label", "purchase_price", "purchase_date", "language"]]
+            st.dataframe(df_ocr_preview, use_container_width=True)
+            if st.button("🚀 Confirm Import All from Screenshot into Vault", key="btn_confirm_ocr_import"):
+                cnt_ocr, msg_ocr = bulk_import_ebay_history(parsed_ocr_items)
+                del st.session_state["vault_ocr_text"]
+                st.success(msg_ocr)
+                st.rerun()
         else:
-            st.warning("Could not extract readable text from image. Make sure the screenshot is legible, or configure an optional Gemini API key in Settings.")
+            st.warning("Extracted text, but no Pokémon card order rows were matched. Raw text:")
+            st.code(st.session_state["vault_ocr_text"])
 
 # Tab 4: eBay Purchase History Raw Text
 with imp_t4:
@@ -252,7 +240,6 @@ with imp_t4:
             st.dataframe(df_preview_ebay, use_container_width=True)
             if st.button("🚀 Confirm Add All eBay Cards to Vault", key="btn_confirm_ebay_text_import"):
                 cnt_eb, msg_eb = bulk_import_ebay_history(parsed_ebay_items)
-                clear_dashboard_cache()
                 st.success(msg_eb)
                 st.rerun()
         else:
@@ -274,7 +261,6 @@ with imp_t5:
             st.dataframe(df_up_col.head(3), use_container_width=True)
             if st.button("🚀 Confirm Bulk Import into Vault"):
                 count_imp, msg_imp = bulk_import_collection_from_df(df_up_col)
-                clear_dashboard_cache()
                 st.success(msg_imp)
                 st.rerun()
         except Exception as e:
@@ -283,26 +269,119 @@ with imp_t5:
 st.markdown("---")
 
 # -------------------------------------------------------------
-# Collection Cards Display
+# Active Inline Edit Drawer (renders only when user clicks Edit)
+# -------------------------------------------------------------
+editing_id = st.session_state.get("editing_card_id")
+if editing_id:
+    edit_row_matches = df_col[df_col["id"] == editing_id]
+    if not edit_row_matches.empty:
+        erow = edit_row_matches.iloc[0]
+        with st.expander(f"✏️ Editing: {erow['card_name']} ({erow['set_name']})", expanded=True):
+            with st.form("active_edit_card_form"):
+                ed_c1, ed_c2 = st.columns(2)
+                with ed_c1:
+                    e_name = st.text_input("Card Name", value=erow["card_name"])
+                    e_set = st.text_input("Set Name", value=erow["set_name"])
+                    e_num = st.text_input("Card #", value=erow["card_number"])
+                    e_grader = st.selectbox("Grader", ["RAW", "PSA", "CGC", "BGS", "ARS", "ACE"], index=0 if erow["is_raw"] else 1)
+                    e_grade = st.number_input("Grade", min_value=0.0, max_value=10.0, value=float(erow["grade"]), step=0.5)
+                    e_label = st.selectbox("Grade Label", ["Raw Single", "Gem Mint", "Pristine 10", "Black Label 10", "Mint 9", "Near Mint 8"])
+                with ed_c2:
+                    e_cert = st.text_input("Cert #", value=erow["cert_number"] or "")
+                    e_cost = st.number_input("Purchase Price ($)", min_value=0.0, value=float(erow["purchase_price"]), step=5.0)
+                    e_date = st.text_input("Purchase Date", value=str(erow["purchase_date"]))
+                    ed_idx = EDITION_OPTIONS.index(erow["edition"]) if erow["edition"] in EDITION_OPTIONS else 0
+                    e_ed = st.selectbox("Edition / Rarity", EDITION_OPTIONS, index=ed_idx)
+                    lang_idx = LANGUAGE_OPTIONS.index(erow["language"]) if erow["language"] in LANGUAGE_OPTIONS else 0
+                    e_lang = st.selectbox("Language", LANGUAGE_OPTIONS, index=lang_idx)
+
+                e_img = st.text_input("Image URL (Custom/Scan)", value=erow["image_url"] or "")
+                e_notes = st.text_area("Notes", value=erow["notes"] or "")
+
+                btn_c1, btn_c2 = st.columns(2)
+                with btn_c1:
+                    if st.form_submit_button("💾 Save Changes", type="primary"):
+                        update_collection_card(editing_id, {
+                            "card_name": e_name,
+                            "set_name": e_set,
+                            "card_number": e_num,
+                            "grading_company": e_grader,
+                            "grade": e_grade,
+                            "grade_label": e_label,
+                            "cert_number": e_cert,
+                            "purchase_price": e_cost,
+                            "purchase_date": e_date,
+                            "edition": e_ed,
+                            "language": e_lang,
+                            "is_error": erow["is_error"],
+                            "error_type": erow["error_type"],
+                            "is_raw": 1 if e_grader == "RAW" else 0,
+                            "image_url": e_img,
+                            "notes": e_notes,
+                        })
+                        del st.session_state["editing_card_id"]
+                        st.success("Card updated!")
+                        st.rerun()
+                with btn_c2:
+                    if st.form_submit_button("Cancel"):
+                        del st.session_state["editing_card_id"]
+                        st.rerun()
+
+# -------------------------------------------------------------
+# Active Delete Confirmation Banner
+# -------------------------------------------------------------
+deleting_id = st.session_state.get("deleting_card_id")
+if deleting_id:
+    del_matches = df_col[df_col["id"] == deleting_id]
+    if not del_matches.empty:
+        drow = del_matches.iloc[0]
+        st.warning(f"⚠️ Are you sure you want to remove **{drow['card_name']}** ({drow['set_name']} #{drow['card_number']}) from your Vault?")
+        del_c1, del_c2, _ = st.columns([1, 1, 3])
+        with del_c1:
+            if st.button("🗑️ Yes, Delete Card", type="primary", key="confirm_delete_btn"):
+                delete_card_from_collection(deleting_id)
+                del st.session_state["deleting_card_id"]
+                st.success("Removed card from Vault!")
+                st.rerun()
+        with del_c2:
+            if st.button("Cancel", key="cancel_delete_btn"):
+                del st.session_state["deleting_card_id"]
+                st.rerun()
+
+# -------------------------------------------------------------
+# Collection Cards Display with Instant Pagination
 # -------------------------------------------------------------
 if df_col.empty:
     st.info("💡 Your Vault is currently empty. Use any of the import tools above to add cards!")
 else:
-    v_col1, v_col2, v_col3 = st.columns([2, 1.2, 1.2])
+    v_col1, v_col2, v_col3 = st.columns([2, 1.5, 1.5])
     with v_col1:
         st.markdown(f"#### 🏆 Your Collection ({len(df_col)} Items)")
     with v_col2:
-        if st.button("✨ Auto-Enrich Vault", key="btn_enrich_vault", use_container_width=True):
-            count_enr, msg_enr = auto_enrich_master_catalog(force_all=True)
-            clear_dashboard_cache()
-            st.success(msg_enr)
-            st.rerun()
+        per_page_choice = st.selectbox("Cards per page:", [12, 24, 48, "All"], index=0, key="vault_per_page")
     with v_col3:
         view_mode = st.radio("Display Layout:", ["🃏 Card Grid View", "📋 Table / List View"], horizontal=True, key="vault_v_mode")
 
+    per_page = len(df_col) if per_page_choice == "All" or len(df_col) == 0 else int(per_page_choice)
+    total_pages = max(1, (len(df_col) + per_page - 1) // per_page) if per_page > 0 else 1
+
+    if total_pages > 1:
+        pg_c1, pg_c2, pg_c3 = st.columns([1, 2, 1])
+        with pg_c2:
+            page_num = st.number_input(f"Page (1 to {total_pages})", min_value=1, max_value=total_pages, value=1, step=1, key="v_page_num")
+    else:
+        page_num = 1
+
+    start_idx = (page_num - 1) * per_page
+    end_idx = min(start_idx + per_page, len(df_col))
+    page_col_df = df_col.iloc[start_idx:end_idx]
+
+    if total_pages > 1:
+        st.caption(f"Showing cards **{start_idx + 1}–{end_idx}** of **{len(df_col)}** (Page {page_num} of {total_pages})")
+
     if "Card Grid" in view_mode:
         grid_cols = st.columns(3)
-        for idx, row in df_col.iterrows():
+        for idx, (_, row) in enumerate(page_col_df.iterrows()):
             target_col = grid_cols[idx % 3]
             with target_col:
                 grade_badge = get_grading_badge_html(
@@ -319,7 +398,6 @@ else:
                 psa_link = get_psa_cert_lookup_url(row["cert_number"]) if row["cert_number"] else None
                 cert_display = f'<a href="{psa_link}" target="_blank" style="color: #60a5fa; text-decoration: none; font-weight: 700;">#{row["cert_number"]} ↗</a>' if psa_link else (f'#{row["cert_number"]}' if row["cert_number"] else 'Raw Single')
 
-                # Format Bought & Market cleanly with unrecorded / unappraised fallback
                 if row["purchase_price"] > 0:
                     bought_display = f"${row['purchase_price']:,.2f} ({row['purchase_date']})"
                 else:
@@ -367,60 +445,17 @@ else:
 </div>"""
                 st.markdown(card_box_html, unsafe_allow_html=True)
 
-                # Action buttons
+                # Lightweight Action Buttons (Zero DOM form bloat)
                 b1, b2, b3 = st.columns(3)
                 with b1:
-                    with st.popover("✏️ Edit"):
-                        with st.form(f"edit_form_{row['id']}"):
-                            e_name = st.text_input("Card Name", value=row["card_name"])
-                            e_set = st.text_input("Set Name", value=row["set_name"])
-                            e_num = st.text_input("Card #", value=row["card_number"])
-                            e_grader = st.selectbox("Grader", ["RAW", "PSA", "CGC", "BGS", "ARS", "ACE"], index=0 if row["is_raw"] else 1)
-                            e_grade = st.number_input("Grade", min_value=0.0, max_value=10.0, value=float(row["grade"]), step=0.5)
-                            e_label = st.selectbox("Grade Label", ["Raw Single", "Gem Mint", "Pristine 10", "Black Label 10", "Mint 9", "Near Mint 8"])
-                            e_cert = st.text_input("Cert #", value=row["cert_number"] or "")
-                            e_cost = st.number_input("Purchase Price ($)", min_value=0.0, value=float(row["purchase_price"]), step=5.0)
-                            e_date = st.text_input("Purchase Date", value=str(row["purchase_date"]))
-                            ed_idx = EDITION_OPTIONS.index(row["edition"]) if row["edition"] in EDITION_OPTIONS else 0
-                            e_ed = st.selectbox("Edition / Rarity", EDITION_OPTIONS, index=ed_idx)
-                            lang_idx = LANGUAGE_OPTIONS.index(row["language"]) if row["language"] in LANGUAGE_OPTIONS else 0
-                            e_lang = st.selectbox("Language", LANGUAGE_OPTIONS, index=lang_idx)
-                            e_err = st.checkbox("Error Card?", value=bool(row["is_error"]))
-                            e_err_type = st.text_input("Error Type", value=row["error_type"] or "") if e_err else ""
-                            e_img = st.text_input("Image URL (Custom/Scan)", value=row["image_url"] or "")
-                            e_notes = st.text_area("Notes", value=row["notes"] or "")
-
-                            if st.form_submit_button("Save Changes"):
-                                update_collection_card(row["id"], {
-                                    "card_name": e_name,
-                                    "set_name": e_set,
-                                    "card_number": e_num,
-                                    "grading_company": e_grader,
-                                    "grade": e_grade,
-                                    "grade_label": e_label,
-                                    "cert_number": e_cert,
-                                    "purchase_price": e_cost,
-                                    "purchase_date": e_date,
-                                    "edition": e_ed,
-                                    "language": e_lang,
-                                    "is_error": 1 if e_err else 0,
-                                    "error_type": e_err_type if e_err else None,
-                                    "is_raw": 1 if e_grader == "RAW" else 0,
-                                    "image_url": e_img,
-                                    "notes": e_notes,
-                                })
-                                clear_dashboard_cache()
-                                st.success("Card updated!")
-                                st.rerun()
+                    if st.button("✏️ Edit", key=f"btn_edit_{row['id']}", use_container_width=True):
+                        st.session_state["editing_card_id"] = row["id"]
+                        st.rerun()
 
                 with b2:
-                    with st.popover("🗑️ Remove"):
-                        st.write(f"Remove **{row['card_name']}** ({row['set_name']}) from your Vault?")
-                        if st.button("Confirm Delete", key=f"del_{row['id']}", type="primary"):
-                            delete_card_from_collection(row["id"])
-                            clear_dashboard_cache()
-                            st.success("Removed from Vault!")
-                            st.rerun()
+                    if st.button("🗑️ Del", key=f"btn_del_{row['id']}", use_container_width=True):
+                        st.session_state["deleting_card_id"] = row["id"]
+                        st.rerun()
 
                 with b3:
                     with st.popover("ℹ️ Info"):

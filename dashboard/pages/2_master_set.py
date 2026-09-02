@@ -39,19 +39,8 @@ from styles import (
 apply_custom_styles()
 render_header()
 
-@st.cache_data(ttl=60)
-def get_cached_master_catalog_df():
-    return load_master_catalog_df()
-
-@st.cache_data(ttl=60)
-def get_cached_master_set_metrics():
-    return get_master_set_metrics()
-
-def clear_dashboard_cache():
-    st.cache_data.clear()
-
-master_metrics = get_cached_master_set_metrics()
-df_master = get_cached_master_catalog_df()
+master_metrics = get_master_set_metrics()
+df_master = load_master_catalog_df()
 
 st.markdown("### 📜 Master Set Checklist & Catalog")
 
@@ -86,14 +75,12 @@ with en_col2:
     if st.button("✨ Auto-Enrich Names & Images", key="btn_auto_enrich_master", use_container_width=True):
         with st.spinner("Resolving card names and fetching official scans..."):
             cnt, msg = auto_enrich_master_catalog(force_all=True)
-            clear_dashboard_cache()
             st.success(msg)
             st.rerun()
 with en_col3:
     if st.button("⚡ Cache Scans Locally", key="btn_download_images_local", use_container_width=True):
         with st.spinner("Downloading high-res images to server for instant offline loading..."):
             d_cnt, d_msg = download_all_card_images_locally()
-            clear_dashboard_cache()
             st.success(d_msg)
             st.rerun()
 
@@ -246,7 +233,6 @@ if "Card Grid" in master_view_mode:
                         st.caption(f"Details: {row['owned_details']}")
                         if st.button("❌ Remove from Vault", key=f"unmark_{row['id']}", type="primary"):
                             unmark_card_as_owned(row["id"], row["card_name"], row["set_name"])
-                            clear_dashboard_cache()
                             st.success("Unmarked card from Vault!")
                             st.rerun()
                     else:
@@ -278,7 +264,6 @@ if "Card Grid" in master_view_mode:
                                 "image_url": row["image_url"],
                                 "notes": f"Added from Master Set Catalog.",
                             })
-                            clear_dashboard_cache()
                             st.success("Added to Vault!")
                             st.rerun()
 
@@ -317,14 +302,12 @@ if "Card Grid" in master_view_mode:
                                 "image_url": em_img,
                                 "notes": em_notes,
                             })
-                            clear_dashboard_cache()
                             st.success("Saved!")
                             st.rerun()
 
                     if row["image_url"] and row["image_url"] != DEFAULT_CARD_BACK_IMAGE:
                         if st.button("🚩 Reset Image to Card Back", key=f"flag_edit_{row['id']}"):
                             update_card_image_override("master_set_catalog", row["id"], DEFAULT_CARD_BACK_IMAGE)
-                            clear_dashboard_cache()
                             st.success("Reset image to Card Back placeholder!")
                             st.rerun()
 else:
@@ -358,6 +341,5 @@ with st.expander("☁️ Sync Master Checklist from Google Sheets", expanded=Fal
     if st.button("🔄 Sync Master Set from Google Sheets", key="btn_sync_sheets"):
         with st.spinner("Syncing catalog with Google Sheets..."):
             count, msg, _ = sync_from_google_sheets_url(sheet_url_input)
-            clear_dashboard_cache()
             st.success(msg)
             st.rerun()
