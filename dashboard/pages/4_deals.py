@@ -6,7 +6,7 @@ Scraped live eBay deals evaluated against fair market value with automated disco
 import pandas as pd
 import streamlit as st
 
-from db_utils import load_deals_df
+from db_utils import appraise_and_add_deal_listing, load_deals_df, parse_ebay_url_details
 from styles import apply_custom_styles, render_header
 
 apply_custom_styles()
@@ -14,6 +14,31 @@ render_header()
 
 st.markdown("### 🔥 Multi-Tier AI Deal Radar")
 st.markdown("Live eBay listings automatically evaluated against fair market value with automated discount scoring.")
+
+# Custom Listing Appraiser Form
+with st.expander("➕ Appraise & Add Custom eBay Listing to AI Deals", expanded=False):
+    st.markdown("Paste an eBay listing link or Item ID to immediately appraise it and add it to the AI Deal Radar:")
+    ad_c1, ad_c2 = st.columns([3, 1])
+    with ad_c1:
+        deal_url_in = st.text_input("eBay Listing URL or Item ID", placeholder="e.g. https://www.ebay.com/itm/128050827605", key="deal_url_in")
+    with ad_c2:
+        deal_price_in = st.number_input("Listing Price ($)", min_value=0.0, value=0.0, step=5.0, help="Leave 0 to auto-extract or estimate", key="deal_price_in")
+
+    if deal_url_in:
+        parsed_preview = parse_ebay_url_details(deal_url_in)
+        if parsed_preview:
+            p_price = deal_price_in if deal_price_in > 0 else parsed_preview.get("current_bid", 25.0)
+            f_val = parsed_preview.get("fair_value", 50.0)
+            disc = round(((f_val - p_price) / f_val) * 100, 1) if f_val > 0 else 0.0
+            st.info(f"**Card Identified:** `{parsed_preview.get('card_name')}` ({parsed_preview.get('set_name')}) • **Fair Value:** `${f_val:,.2f}` • **Discount:** `{disc:.1f}%`")
+
+            if st.button("🚀 Confirm & Add to AI Deal Radar", key="btn_add_to_ai_radar", type="primary"):
+                ok, msg, _ = appraise_and_add_deal_listing(deal_url_in, listing_price=deal_price_in)
+                if ok:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
 
 f1, f2 = st.columns(2)
 with f1:

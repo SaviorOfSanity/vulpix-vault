@@ -68,14 +68,21 @@ with st.expander("➕ Add eBay Auction by Link / Item ID", expanded=True):
             target_max = custom_bid_val if custom_bid_val > 0 else parsed["fair_value"]
             target_mode_code = "custom_max"
 
+        card_display_name = parsed.get("card_name", "Vulpix")
+        set_display_name = parsed.get("set_name", "Unknown Set")
+        edition_display = parsed.get("edition", "Unlimited")
+        grader_display = parsed.get("grading_company", "RAW")
+        label_display = parsed.get("grade_label", "Raw Single")
+        fair_val_display = parsed.get("fair_value", 0.0)
+
         st.markdown(f"""
         <div style="background: #181920; border: 1px solid rgba(255, 122, 69, 0.3); border-radius: 10px; padding: 12px 16px; margin: 12px 0;">
-            <div style="font-weight: 800; font-size: 1.05rem; color: #ffffff;">{parsed['title']}</div>
+            <div style="font-weight: 800; font-size: 1.05rem; color: #ffffff;">{parsed.get('title', 'eBay Auction')}</div>
             <div style="color: #8c8d9a; font-size: 0.85rem; margin-bottom: 8px;">
-                Identified: <strong>{parsed['card_name']}</strong> ({parsed['set_name']}) • {parsed['edition']} • {parsed['grading_company']} {parsed['grade_label']}
+                Identified: <strong>{card_display_name}</strong> ({set_display_name}) • {edition_display} • {grader_display} {label_display}
             </div>
             <div style="display: flex; gap: 20px; font-size: 0.9rem;">
-                <div>Fair Market Value: <strong style="color: #ffd591;">${parsed['fair_value']:,.2f}</strong></div>
+                <div>Fair Market Value: <strong style="color: #ffd591;">${fair_val_display:,.2f}</strong></div>
                 <div>Your Max Bid Threshold: <strong style="color: #4ade80;">${target_max:,.2f}</strong></div>
             </div>
         </div>
@@ -83,23 +90,22 @@ with st.expander("➕ Add eBay Auction by Link / Item ID", expanded=True):
 
         if st.button("🚀 Confirm & Add to Sniper Watchlist", key="btn_confirm_add_sniper", type="primary"):
             new_sn_id = add_to_sniper_watchlist({
-                "listing_id": parsed["item_id"],
-                "title": parsed["title"],
-                "card_name": parsed["card_name"],
-                "grading_company": parsed["grading_company"],
-                "grade": parsed["grade"],
-                "grade_label": parsed["grade_label"],
-                "condition_type": parsed["condition_type"],
-                "edition": parsed["edition"],
-                "current_bid": parsed.get("current_price", 0.0),
-                "shipping_cost": 0.0,
+                "listing_id": parsed.get("item_id") or parsed.get("listing_id"),
+                "title": parsed.get("title", "eBay Auction"),
+                "card_name": card_display_name,
+                "grading_company": grader_display,
+                "grade": parsed.get("grade", 0.0),
+                "grade_label": label_display,
+                "condition_type": parsed.get("condition_type", "Raw"),
+                "edition": edition_display,
+                "current_bid": parsed.get("current_bid") or parsed.get("current_price", 0.0),
+                "shipping_cost": parsed.get("shipping_cost", 0.0),
                 "max_bid_target": target_max,
-                "fair_market_value": parsed["fair_value"],
+                "fair_market_value": fair_val_display,
                 "snipe_mode": target_mode_code,
-                "listing_url": parsed["canonical_url"],
-                "auction_end_time": datetime.today().strftime("%Y-%m-%d %H:%M:%S"),
+                "listing_url": parsed.get("canonical_url") or parsed.get("listing_url", ""),
+                "auction_end_time": parsed.get("auction_end_time", datetime.today().strftime("%Y-%m-%d %H:%M:%S")),
             })
-            clear_dashboard_cache()
             st.success("Target successfully saved to Sniper Watchlist!")
             st.rerun()
 

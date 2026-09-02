@@ -17,6 +17,7 @@ from db_utils import (
     load_market_sales_df,
     send_gotify_alert,
     set_system_setting,
+    sync_ebay_user_account,
 )
 from styles import apply_custom_styles, render_header
 
@@ -104,3 +105,57 @@ with col_s2:
                     st.error("Failed to connect to Gotify. Check server URL and application token.")
             else:
                 st.warning("Please enter a Gotify application token.")
+
+st.markdown("---")
+st.markdown("#### 🛒 Official eBay API Integration & 1-Click Sync")
+st.markdown(
+    "Connect your eBay Developer credentials to automatically import your **personal Watchlist** into the Sniper Radar, "
+    "pull your **past Pokémon purchases (Won List)** directly into your Vault, and track **active bids** in real time."
+)
+
+saved_ebay_token = get_system_setting("EBAY_USER_TOKEN", os.getenv("EBAY_USER_TOKEN", ""))
+saved_ebay_app_id = get_system_setting("EBAY_APP_ID", os.getenv("EBAY_APP_ID", ""))
+saved_ebay_cert_id = get_system_setting("EBAY_CERT_ID", os.getenv("EBAY_CERT_ID", ""))
+saved_ebay_dev_id = get_system_setting("EBAY_DEV_ID", os.getenv("EBAY_DEV_ID", ""))
+
+with st.form("ebay_api_settings_form"):
+    e_col1, e_col2 = st.columns(2)
+    with e_col1:
+        in_ebay_app_id = st.text_input("eBay App ID (Client ID)", value=saved_ebay_app_id, placeholder="e.g. YourName-VulpixVa-PRD-xxxxxxxx")
+        in_ebay_cert_id = st.text_input("eBay Cert ID (Client Secret)", value=saved_ebay_cert_id, placeholder="e.g. PRD-xxxxxxxxxxxx", type="password")
+    with e_col2:
+        in_ebay_dev_id = st.text_input("eBay Dev ID (Optional)", value=saved_ebay_dev_id, placeholder="e.g. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+        in_ebay_token = st.text_area("eBay User Auth Token (Trading API Token)", value=saved_ebay_token, placeholder="v^1.1#i^1#p^3#r^1#I^3...", height=70)
+
+    st.caption("💡 *Get these keys for free at [developer.ebay.com](https://developer.ebay.com). In your eBay Developer portal under **User Tokens**, generate a User Token for your account.*")
+
+    eb_btn1, eb_btn2 = st.columns(2)
+    with eb_btn1:
+        save_eb_creds = st.form_submit_button("💾 Save eBay Credentials")
+    with eb_btn2:
+        sync_eb_now = st.form_submit_button("🔄 Auto-Sync Watchlist & Purchases", type="primary")
+
+    if save_eb_creds:
+        set_system_setting("EBAY_USER_TOKEN", in_ebay_token.strip())
+        set_system_setting("EBAY_APP_ID", in_ebay_app_id.strip())
+        set_system_setting("EBAY_CERT_ID", in_ebay_cert_id.strip())
+        set_system_setting("EBAY_DEV_ID", in_ebay_dev_id.strip())
+        st.success("eBay API credentials saved successfully!")
+
+    if sync_eb_now:
+        set_system_setting("EBAY_USER_TOKEN", in_ebay_token.strip())
+        set_system_setting("EBAY_APP_ID", in_ebay_app_id.strip())
+        set_system_setting("EBAY_CERT_ID", in_ebay_cert_id.strip())
+        set_system_setting("EBAY_DEV_ID", in_ebay_dev_id.strip())
+        with st.spinner("Connecting to eBay Trading API and syncing account data..."):
+            ok, msg, stats = sync_ebay_user_account(
+                user_token=in_ebay_token.strip(),
+                app_id=in_ebay_app_id.strip(),
+                dev_id=in_ebay_dev_id.strip(),
+                cert_id=in_ebay_cert_id.strip(),
+            )
+            if ok:
+                st.success(f"✅ {msg}")
+                st.rerun()
+            else:
+                st.error(f"❌ {msg}")

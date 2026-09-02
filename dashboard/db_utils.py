@@ -984,6 +984,44 @@ def parse_ebay_url_details(url_or_id: str) -> Dict[str, Any]:
     set_name = matched_row["set_name"] if matched_row is not None else "Base Set"
     edition = "1st Edition" if is_1st else ("Shadowless" if is_shadowless else ("Unlimited" if matched_row is None else matched_row["edition"]))
 
+    # Determine Grader & Grade
+    grader = "RAW"
+    grade_num = 0.0
+    grade_label = "Raw Single"
+    condition_type = "Raw"
+
+    t_low = clean_title.lower()
+    if "pristine 10" in t_low:
+        grade_num = 10.0
+        grade_label = "Pristine 10"
+        condition_type = "Graded"
+        grader = "CGC" if "cgc" in t_low else ("BGS" if "bgs" in t_low else "PSA")
+    elif "black label" in t_low:
+        grade_num = 10.0
+        grade_label = "Black Label 10"
+        condition_type = "Graded"
+        grader = "BGS"
+    elif "psa 10" in t_low or "gem mt" in t_low or "cgc 10" in t_low or is_psa10:
+        grade_num = 10.0
+        grade_label = "Gem Mint"
+        condition_type = "Graded"
+        grader = "PSA" if "psa" in t_low else ("CGC" if "cgc" in t_low else "PSA")
+    elif "psa 9" in t_low or "cgc 9" in t_low or "mint 9" in t_low:
+        grade_num = 9.0
+        grade_label = "Mint 9"
+        condition_type = "Graded"
+        grader = "PSA" if "psa" in t_low else "CGC"
+    elif "psa 8" in t_low or "cgc 8" in t_low or "nm 8" in t_low:
+        grade_num = 8.0
+        grade_label = "Near Mint 8"
+        condition_type = "Graded"
+        grader = "PSA" if "psa" in t_low else "CGC"
+    elif is_graded:
+        grade_num = 9.0
+        grade_label = "Graded Slab"
+        condition_type = "Graded"
+        grader = "PSA" if "psa" in t_low else ("CGC" if "cgc" in t_low else ("BGS" if "bgs" in t_low else "PSA"))
+
     if is_psa10:
         grade_desc = "Graded Gem Mint 10 (PSA/CGC)"
         fair_val = float(matched_row["est_grade10_price"]) if matched_row is not None else 150.0
@@ -1000,12 +1038,18 @@ def parse_ebay_url_details(url_or_id: str) -> Dict[str, Any]:
     great_max = round(fair_val * 0.75, 2)
 
     return {
+        "item_id": item_id,
         "listing_id": item_id,
         "title": clean_title.title(),
+        "canonical_url": canonical_url,
         "listing_url": canonical_url,
         "card_name": card_name,
         "set_name": set_name,
         "edition": edition,
+        "grading_company": grader,
+        "grade": grade_num,
+        "grade_label": grade_label,
+        "condition_type": condition_type,
         "condition_desc": grade_desc,
         "fair_value": fair_val,
         "amazing_deal_max": amazing_max,
@@ -2024,6 +2068,100 @@ def load_market_sales_df() -> pd.DataFrame:
     return df
 
 
+def appraise_and_add_deal_listing(url_or_id: str, listing_price: float = 0.0) -> Tuple[bool, str, Dict[str, Any]]:
+    """
+    Appraises any eBay listing or URL against fair market value and recent comps,
+    assigns deal rating (amazing_deal, great_deal, good_deal), and saves it to the AI Deal Radar.
+    """
+    ensure_tables_exist()
+    parsed = parse_ebay_url_details(url_or_id)
+    if not parsed or not parsed.get("item_id"):
+        return False, "Could not parse eBay URL or item ID.", {}
+
+    item_id = parsed["item_id"]
+    title = parsed.get("title", "eBay Listing")
+    fair_val = float(parsed.get("fair_value", 50.0))
+    price = float(listing_price) if listing_price > 0 else float(parsed.get("current_bid", 25.0))
+    shipping = float(parsed.get("shipping_cost", 0.0))
+    total_price = price + shipping
+
+    # Compute discount
+    if fair_val > 0 and total_price > 0:
+        discount = round(((fair_val - total_price) / fair_val) * 100, 1)
+    else:
+        discount = 0.0
+
+    if discount >= 40.0:
+        deal_rating = "amazing_deal"
+        ai_rationale = f"Evaluated by AI as an Amazing Deal: priced {discount:.1f}% below fair market estimate of ${fair_val:,.2f}."
+    elif discount >= 25.0:
+        deal_rating = "great_deal"
+        ai_rationale = f"Evaluated by AI as a Great Deal: priced {discount:.1f}% below fair market estimate of ${fair_val:,.2f}."
+    elif discount >= 10.0:
+        deal_rating = "good_deal"
+        ai_rationale = f"Evaluated by AI as a Good Deal: priced {discount:.1f}% below fair market estimate of ${fair_val:,.2f}."
+    else:
+        deal_rating = "fair_deal"
+        ai_rationale = f"Market-rate listing: current total price ${total_price:,.2f} is close to fair value of ${fair_val:,.2f} ({discount:.1f}% discount)."
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO market_sales (
+                listing_id, title, card_name, grading_company, grade,
+                grade_label, condition_type, edition, language, is_error,
+                price, shipping_cost, total_price, listing_url, image_url,
+                listing_type, deal_rating, fair_value_estimate,
+                discount_percentage, ai_rationale, sale_date
+            ) VALUES (
+                :listing_id, :title, :card_name, :grading_company, :grade,
+                :grade_label, :condition_type, :edition, :language, :is_error,
+                :price, :shipping_cost, :total_price, :listing_url, :image_url,
+                :listing_type, :deal_rating, :fair_value_estimate,
+                :discount_percentage, :ai_rationale, :sale_date
+            )
+            ON CONFLICT(listing_id) DO UPDATE SET
+                price = excluded.price,
+                total_price = excluded.total_price,
+                deal_rating = excluded.deal_rating,
+                fair_value_estimate = excluded.fair_value_estimate,
+                discount_percentage = excluded.discount_percentage,
+                ai_rationale = excluded.ai_rationale;
+        """, {
+            "listing_id": item_id,
+            "title": title,
+            "card_name": parsed.get("card_name", "Vulpix"),
+            "grading_company": parsed.get("grading_company", "RAW"),
+            "grade": parsed.get("grade", 0.0),
+            "grade_label": parsed.get("grade_label", "Raw Single"),
+            "condition_type": parsed.get("condition_type", "Raw"),
+            "edition": parsed.get("edition", "Unlimited"),
+            "language": "English",
+            "is_error": 0,
+            "price": price,
+            "shipping_cost": shipping,
+            "total_price": total_price,
+            "listing_url": parsed.get("canonical_url", ""),
+            "image_url": parsed.get("image_url", DEFAULT_CARD_BACK_IMAGE),
+            "listing_type": "Auction" if "Auction" in parsed.get("title", "") else "FixedPrice",
+            "deal_rating": deal_rating,
+            "fair_value_estimate": fair_val,
+            "discount_percentage": discount,
+            "ai_rationale": ai_rationale,
+            "sale_date": datetime.today().strftime("%Y-%m-%d"),
+        })
+
+    msg = f"Appraised {title} as {deal_rating.replace('_', ' ').title()} ({discount:.1f}% off fair value of ${fair_val:,.2f})!"
+    return True, msg, {
+        "item_id": item_id,
+        "title": title,
+        "deal_rating": deal_rating,
+        "discount_percentage": discount,
+        "fair_value_estimate": fair_val,
+        "total_price": total_price,
+    }
+
+
 def load_deals_df(deal_filter: Optional[str] = None, condition_filter: Optional[str] = None) -> pd.DataFrame:
     """Load AI-appraised deals with multi-tier and condition filters."""
     df = load_market_sales_df()
@@ -2082,3 +2220,120 @@ def get_portfolio_metrics() -> Dict[str, Any]:
         "amazing_deals_count": amazing_deals_count,
         "great_deals_count": great_deals_count,
     }
+
+
+def sync_ebay_user_account(
+    user_token: str,
+    app_id: str = "",
+    dev_id: str = "",
+    cert_id: str = "",
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """
+    Connects to the official eBay Trading API (GetMyeBayBuying) to automatically:
+    1. Import items from your personal eBay Watchlist directly into the Sniper Watchlist.
+    2. Import past purchases (Won List) directly into your Vault collection.
+    3. Retrieve active bids for real-time sniper monitoring.
+    """
+    import xml.etree.ElementTree as ET
+    import requests
+
+    token = user_token.strip()
+    if not token:
+        return False, "eBay User Auth Token is required.", {}
+
+    xml_req = f"""<?xml version="1.0" encoding="utf-8"?>
+<GetMyeBayBuyingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <RequesterCredentials>
+    <eBayAuthToken>{token}</eBayAuthToken>
+  </RequesterCredentials>
+  <WatchList>
+    <Include>true</Include>
+  </WatchList>
+  <BidList>
+    <Include>true</Include>
+  </BidList>
+  <WonList>
+    <Include>true</Include>
+    <DurationInDays>60</DurationInDays>
+  </WonList>
+</GetMyeBayBuyingRequest>"""
+
+    headers = {
+        "X-EBAY-API-COMPATIBILITY-LEVEL": "967",
+        "X-EBAY-API-CALL-NAME": "GetMyeBayBuying",
+        "X-EBAY-API-SITEID": "0",
+        "X-EBAY-API-APP-NAME": app_id.strip() if app_id else "VulpixVault-App",
+        "X-EBAY-API-DEV-NAME": dev_id.strip() if dev_id else "",
+        "X-EBAY-API-CERT-NAME": cert_id.strip() if cert_id else "",
+        "Content-Type": "text/xml",
+    }
+
+    try:
+        resp = requests.post("https://api.ebay.com/ws/api.dll", data=xml_req, headers=headers, timeout=20.0)
+        if resp.status_code != 200:
+            return False, f"eBay API HTTP {resp.status_code}: {resp.text[:200]}", {}
+
+        root = ET.fromstring(resp.content)
+        ns = {"ebay": "urn:ebay:apis:eBLBaseComponents"}
+        ack = root.findtext("ebay:Ack", "", ns)
+
+        if ack not in ["Success", "Warning"]:
+            err_msg = root.findtext(".//ebay:LongMessage", "", ns) or root.findtext(".//ebay:ShortMessage", "Unknown eBay API error", ns)
+            return False, f"eBay API Error: {err_msg}", {}
+
+        # 1. Process WatchList -> Sniper Watchlist
+        watch_count = 0
+        for item in root.findall(".//ebay:WatchList//ebay:Item", ns):
+            item_id = item.findtext("ebay:ItemID", "", ns)
+            title = item.findtext("ebay:Title", "", ns)
+            price = float(item.findtext(".//ebay:CurrentPrice", "0.0", ns) or 0.0)
+            end_time = item.findtext(".//ebay:EndTime", "", ns)
+            url = item.findtext(".//ebay:ViewItemURL", f"https://www.ebay.com/itm/{item_id}", ns)
+            img_url = item.findtext(".//ebay:GalleryURL", "", ns) or DEFAULT_CARD_BACK_IMAGE
+
+            if item_id and title:
+                add_to_sniper_watchlist({
+                    "listing_id": item_id,
+                    "card_name": "Vulpix",
+                    "title": title,
+                    "listing_url": url,
+                    "image_url": img_url,
+                    "auction_end_time": end_time[:19].replace("T", " ") if end_time else "",
+                    "current_bid": price,
+                    "shipping_cost": 0.0,
+                    "target_bid_mode": "amazing_deal",
+                    "custom_max_bid": None,
+                    "max_calculated_bid": round(price * 1.1, 2),
+                    "status": "watching",
+                    "notes": "Auto-imported from personal eBay Watchlist.",
+                })
+                watch_count += 1
+
+        # 2. Process WonList -> Vault Collection
+        won_count = 0
+        for item in root.findall(".//ebay:WonList//ebay:Item", ns):
+            item_id = item.findtext("ebay:ItemID", "", ns)
+            title = item.findtext("ebay:Title", "", ns)
+            price = float(item.findtext(".//ebay:CurrentPrice", "0.0", ns) or 0.0)
+            end_time = item.findtext(".//ebay:EndTime", "", ns)
+            end_date = end_time[:10] if end_time else datetime.today().strftime("%Y-%m-%d")
+
+            if title and "vulpix" in title.lower():
+                parsed_list = parse_ebay_purchase_history_text(f"{title}\nUS ${price}\nOrder number: {item_id}\nDelivered on {end_date}")
+                if parsed_list:
+                    bulk_import_ebay_history(parsed_list)
+                    won_count += len(parsed_list)
+
+        # 3. Active Bids Count
+        bid_items = root.findall(".//ebay:BidList//ebay:Item", ns)
+        bid_count = len(bid_items)
+
+        summary_msg = f"Synced with eBay! Loaded {watch_count} watchlist targets, {won_count} purchase orders, and {bid_count} active bids."
+        return True, summary_msg, {
+            "watch_count": watch_count,
+            "won_count": won_count,
+            "bid_count": bid_count,
+        }
+
+    except Exception as e:
+        return False, f"Connection or parsing error: {e}", {}

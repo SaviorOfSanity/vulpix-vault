@@ -13,8 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-try:
-    # Modern Streamlit 1.36+ Multi-Page Navigation with Grouped Sections
+if hasattr(st, "navigation"):
     pages = {
         "Collection & Vault": [
             st.Page("pages/1_vault.py", title="My Vault & Portfolio", icon="💼", default=True),
@@ -31,8 +30,7 @@ try:
     }
     pg = st.navigation(pages)
     pg.run()
-
-except (AttributeError, TypeError):
-    # Fallback execution for environments with standard pages/ discovery
+else:
+    # Fallback for Streamlit < 1.36
     import runpy
     runpy.run_path("pages/1_vault.py")
