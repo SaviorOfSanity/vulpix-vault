@@ -1608,10 +1608,164 @@ def bulk_import_ebay_history(items: List[Dict[str, Any]]) -> Tuple[int, str]:
     for it in items:
         add_card_to_collection(it)
         count += 1
-    return count, f"Successfully imported {count} cards from eBay Purchase History into your Vault!"
+def parse_ebay_link_to_card(url_or_id: str) -> Dict[str, Any]:
+    """
+    Parses any eBay listing link or Item ID into card details.
+    Extracts Card Name, Set, Number, Grader, Grade, Edition, Language, and matches high-res artwork.
+    """
+    s = str(url_or_id).strip()
+    match_id = re.search(r"([0-9]{9,15})", s)
+    item_id = match_id.group(1) if match_id else ""
+
+    # Extract slug from URL if present
+    slug_match = re.search(r"/itm/(?:([^/?#]+)/)?(?:[0-9]{9,15})?", s)
+    slug = slug_match.group(1) if slug_match and slug_match.group(1) else ""
+    title = slug.replace("-", " ").replace("_", " ").strip() if slug else ""
+
+    if not title:
+        title = f"Vulpix Pokemon Card (eBay #{item_id})" if item_id else s
+
+    t_low = title.lower()
+
+    # Detect Grader & Grade
+    grader = "RAW"
+    grade_num = 0.0
+    grade_label = "Raw Single"
+    is_raw = 1
+
+    if "pristine 10" in t_low:
+        grade_num = 10.0
+        grade_label = "Pristine 10"
+        is_raw = 0
+        grader = "CGC" if "cgc" in t_low else ("BGS" if "bgs" in t_low else "PSA")
+    elif "black label" in t_low:
+        grade_num = 10.0
+        grade_label = "Black Label 10"
+        is_raw = 0
+        grader = "BGS"
+    elif "psa 10" in t_low or "gem mt" in t_low or "cgc 10" in t_low:
+        grade_num = 10.0
+        grade_label = "Gem Mint"
+        is_raw = 0
+        grader = "PSA" if "psa" in t_low else ("CGC" if "cgc" in t_low else "PSA")
+    elif "psa 9" in t_low or "cgc 9" in t_low or "mint 9" in t_low:
+        grade_num = 9.0
+        grade_label = "Mint 9"
+        is_raw = 0
+        grader = "PSA" if "psa" in t_low else "CGC"
+    elif "psa 8" in t_low or "cgc 8" in t_low or "nm 8" in t_low:
+        grade_num = 8.0
+        grade_label = "Near Mint 8"
+        is_raw = 0
+        grader = "PSA" if "psa" in t_low else "CGC"
+
+    # Detect Language
+    lang = "Japanese" if "japanese" in t_low or "jp" in t_low else ("Korean" if "korean" in t_low else "English")
+
+    # Detect Card Number
+    num_match = re.search(r'([A-Za-z0-9]+/[A-Za-z0-9]+)', title)
+    card_num = num_match.group(1) if num_match else ""
+
+    # Detect Set
+    set_name = "Promo"
+    if "hidden fates" in t_low:
+        set_name = "Hidden Fates"
+    elif "incandescent arcana" in t_low or "023/068" in title:
+        set_name = "Incandescent Arcana"
+    elif "silver tempest" in t_low:
+        set_name = "Silver Tempest"
+    elif "base set" in t_low:
+        set_name = "Base Set"
+    elif "gym heroes" in t_low:
+        set_name = "Gym Heroes"
+    elif "gym challenge" in t_low:
+        set_name = "Gym Challenge"
+    elif "dragon frontiers" in t_low:
+        set_name = "EX Dragon Frontiers"
+    elif "power keepers" in t_low:
+        set_name = "EX Power Keepers"
+    elif "sun & moon" in t_low or "sun and moon" in t_low:
+        set_name = "Sun & Moon"
+
+    # Detect Card Name
+    card_name = "Alolan Vulpix" if "alolan" in t_low else "Vulpix"
+    if "blaine" in t_low:
+        card_name = "Blaine's Vulpix"
+    elif "brock" in t_low:
+        card_name = "Brock's Vulpix"
+    elif "poncho" in t_low:
+        card_name = "Poncho-wearing Pikachu (Alolan Vulpix Poncho)" if "alolan" in t_low else "Poncho-wearing Pikachu (Vulpix Poncho)"
+
+    # Detect Edition
+    edition = "Unlimited"
+    if "1st" in t_low or "first edition" in t_low:
+        edition = "1st Edition"
+    elif "shadowless" in t_low:
+        edition = "Shadowless"
+    elif "rainbow" in t_low:
+        edition = "Rainbow Rare (HR)"
+    elif "art rare" in t_low or "ar" in t_low:
+        edition = "Art Rare (AR)"
+    elif "shiny" in t_low:
+        edition = "Shiny Vault / Baby Shiny" if "hidden fates" in t_low else "Unlimited"
+
+    # Resolve authentic image
+    meta = resolve_card_metadata(set_name, card_num, card_name)
+    img_url = meta.get("image_url") or DEFAULT_CARD_BACK_IMAGE
+
+    return {
+        "title": title,
+        "card_name": card_name,
+        "set_name": set_name,
+        "card_number": card_num or meta.get("card_number", ""),
+        "grading_company": grader,
+        "grade": grade_num,
+        "grade_label": grade_label,
+        "cert_number": "",
+        "purchase_price": 0.0,
+        "purchase_date": datetime.today().strftime("%Y-%m-%d"),
+        "edition": edition,
+        "language": lang,
+        "is_raw": is_raw,
+        "image_url": img_url,
+        "notes": f"Imported from eBay Link: {s}",
+    }
 
 
-# =============================================================
+def extract_text_from_screenshot(image_file_or_bytes: Any) -> str:
+    """
+    Extracts text from an uploaded screenshot or image file using OCR (pytesseract).
+    Handles PNG, JPG, JPEG, and WebP.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return ""
+
+    try:
+        if isinstance(image_file_or_bytes, bytes):
+            img = Image.open(io.BytesIO(image_file_or_bytes))
+        elif hasattr(image_file_or_bytes, "read"):
+            img = Image.open(image_file_or_bytes)
+        else:
+            img = Image.open(image_file_or_bytes)
+
+        # Convert to RGB if needed
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Try pytesseract
+        try:
+            import pytesseract
+            text = pytesseract.image_to_string(img)
+            return text.strip()
+        except Exception as ocr_err:
+            print(f"[OCR] pytesseract not configured or error: {ocr_err}")
+
+    except Exception as e:
+        print(f"[OCR] Error opening image: {e}")
+
+    return ""
 # Collection CRUD Operations
 # =============================================================
 
