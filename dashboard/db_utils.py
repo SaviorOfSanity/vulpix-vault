@@ -940,11 +940,18 @@ def get_sniper_watchlist_df() -> pd.DataFrame:
     return df
 
 
-def parse_ebay_url_details(url_or_id: str) -> Dict[str, Any]:
+def parse_ebay_url_details(
+    url_or_id: str,
+    custom_title: Optional[str] = None,
+    custom_grade: Optional[str] = None,
+    custom_price: Optional[float] = None,
+    custom_shipping: Optional[float] = None,
+) -> Dict[str, Any]:
     """
     Intelligently parses any eBay listing link or Item ID.
     Auto-detects card variant, set, edition, condition, fair market value,
     and calculates Amazing Deal (~60%) and Great Deal (~75%) bidding caps.
+    Accepts optional custom title, grade, price, and shipping overrides.
     """
     s = str(url_or_id).strip()
     match_id = re.search(r"/itm/(?:([a-zA-Z0-9\-_]+)/)?([0-9]{9,15})", s)
@@ -961,90 +968,144 @@ def parse_ebay_url_details(url_or_id: str) -> Dict[str, Any]:
 
     canonical_url = s if s.startswith("http") else f"https://www.ebay.com/itm/{item_id}"
 
-    # Convert URL slug into human readable title
-    clean_title = slug.replace("-", " ").replace("_", " ").strip() if slug else ""
-    if not clean_title:
-        clean_title = f"Vulpix Pokemon Card (eBay #{item_id})"
+    # Use custom title if provided by user, otherwise parse from URL slug
+    if custom_title and custom_title.strip():
+        clean_title = custom_title.strip()
+    else:
+        clean_title = slug.replace("-", " ").replace("_", " ").strip() if slug else ""
+        if not clean_title:
+            clean_title = f"Vulpix Pokemon Card (eBay #{item_id})"
 
     # Detect Condition & Grade
-    is_graded = bool(re.search(r"(?i)(psa|cgc|bgs|beckett|ars|ace|sgc|graded|slab)", clean_title))
-    is_psa10 = bool(re.search(r"(?i)(psa\s*10|cgc\s*10|bgs\s*10|gem\s*mint|pristine|black\s*label)", clean_title))
-    is_1st = bool(re.search(r"(?i)(1st\s*edition|1st\s*ed|first\s*edition)", clean_title))
-    is_shadowless = bool(re.search(r"(?i)shadowless", clean_title))
+    t_low = clean_title.lower()
+    is_graded = bool(re.search(r"(?i)(psa|cgc|bgs|beckett|ars|ace|sgc|graded|slab)", t_low))
+    is_psa10 = bool(re.search(r"(?i)(psa\s*10|cgc\s*10|bgs\s*10|gem\s*mint|pristine|black\s*label)", t_low))
+    is_1st = bool(re.search(r"(?i)(1st\s*edition|1st\s*ed|first\s*edition)", t_low))
+    is_shadowless = bool(re.search(r"(?i)shadowless", t_low))
 
     # Match against curated Master Catalog for valuation & imagery
     df_m = load_master_catalog_df()
     matched_row = None
     if not df_m.empty:
-        # 1. Best match by set name and edition
+        # Match by set name or card number keywords in title (e.g. "Hidden Legends", "81/101", "Team Up", etc.)
         for _, row in df_m.iterrows():
-            if is_1st and "1st" not in str(row["edition"]).lower():
-                continue
-            if is_shadowless and "shadowless" not in str(row["edition"]).lower():
-                continue
-            clean_s = normalize_str(row["set_name"])
-            clean_t = normalize_str(clean_title)
-            if clean_s and (clean_s in clean_t or clean_t in clean_s):
+            s_name = str(row["set_name"]).lower().strip()
+            c_num = str(row["card_number"]).lower().strip()
+            if (len(s_name) > 3 and s_name in t_low) or (len(c_num) >= 3 and c_num in t_low):
                 matched_row = row
                 break
 
-        # 2. Fallback match
-        if matched_row is None and not df_m.empty:
+        # Fallback to normalized set search
+        if matched_row is None:
+            for _, row in df_m.iterrows():
+                if is_1st and "1st" not in str(row["edition"]).lower():
+                    continue
+                if is_shadowless and "shadowless" not in str(row["edition"]).lower():
+                    continue
+                clean_s = normalize_str(row["set_name"])
+                clean_t = normalize_str(clean_title)
+                if clean_s and (clean_s in clean_t or clean_t in clean_s):
+                    matched_row = row
+                    break
+
+        if matched_row is None:
             matched_row = df_m.iloc[0]
 
     card_name = matched_row["card_name"] if matched_row is not None else "Vulpix"
     set_name = matched_row["set_name"] if matched_row is not None else "Base Set"
     edition = "1st Edition" if is_1st else ("Shadowless" if is_shadowless else ("Unlimited" if matched_row is None else matched_row["edition"]))
 
-    # Determine Grader & Grade
+    # Determine Grader & Grade (honor custom_grade if specified)
     grader = "RAW"
     grade_num = 0.0
     grade_label = "Raw Single"
     condition_type = "Raw"
 
-    t_low = clean_title.lower()
-    if "pristine 10" in t_low:
-        grade_num = 10.0
-        grade_label = "Pristine 10"
-        condition_type = "Graded"
-        grader = "CGC" if "cgc" in t_low else ("BGS" if "bgs" in t_low else "PSA")
-    elif "black label" in t_low:
-        grade_num = 10.0
-        grade_label = "Black Label 10"
-        condition_type = "Graded"
-        grader = "BGS"
-    elif "psa 10" in t_low or "gem mt" in t_low or "cgc 10" in t_low or is_psa10:
-        grade_num = 10.0
-        grade_label = "Gem Mint"
-        condition_type = "Graded"
-        grader = "PSA" if "psa" in t_low else ("CGC" if "cgc" in t_low else "PSA")
-    elif "psa 9" in t_low or "cgc 9" in t_low or "mint 9" in t_low:
-        grade_num = 9.0
-        grade_label = "Mint 9"
-        condition_type = "Graded"
-        grader = "PSA" if "psa" in t_low else "CGC"
-    elif "psa 8" in t_low or "cgc 8" in t_low or "nm 8" in t_low:
-        grade_num = 8.0
-        grade_label = "Near Mint 8"
-        condition_type = "Graded"
-        grader = "PSA" if "psa" in t_low else "CGC"
-    elif is_graded:
-        grade_num = 9.0
-        grade_label = "Graded Slab"
-        condition_type = "Graded"
-        grader = "PSA" if "psa" in t_low else ("CGC" if "cgc" in t_low else ("BGS" if "bgs" in t_low else "PSA"))
+    if custom_grade:
+        cg_low = custom_grade.lower()
+        if "pristine" in cg_low:
+            grader = "CGC"
+            grade_num = 10.0
+            grade_label = "Pristine 10"
+            condition_type = "Graded"
+        elif "black label" in cg_low:
+            grader = "BGS"
+            grade_num = 10.0
+            grade_label = "Black Label 10"
+            condition_type = "Graded"
+        elif "psa 10" in cg_low or "gem mint" in cg_low:
+            grader = "PSA" if "psa" in cg_low else "CGC"
+            grade_num = 10.0
+            grade_label = "Gem Mint"
+            condition_type = "Graded"
+        elif "cgc 10" in cg_low:
+            grader = "CGC"
+            grade_num = 10.0
+            grade_label = "Gem Mint 10"
+            condition_type = "Graded"
+        elif "psa 9" in cg_low or "cgc 9" in cg_low or "mint 9" in cg_low:
+            grader = "PSA" if "psa" in cg_low else "CGC"
+            grade_num = 9.0
+            grade_label = "Mint 9"
+            condition_type = "Graded"
+        elif "raw" in cg_low:
+            grader = "RAW"
+            grade_num = 0.0
+            grade_label = "Raw Single"
+            condition_type = "Raw"
+    else:
+        if "pristine" in t_low:
+            grade_num = 10.0
+            grade_label = "Pristine 10"
+            condition_type = "Graded"
+            grader = "CGC" if "cgc" in t_low else ("BGS" if "bgs" in t_low else "PSA")
+        elif "black label" in t_low:
+            grade_num = 10.0
+            grade_label = "Black Label 10"
+            condition_type = "Graded"
+            grader = "BGS"
+        elif "psa 10" in t_low or "gem mt" in t_low or "cgc 10" in t_low or is_psa10:
+            grade_num = 10.0
+            grade_label = "Gem Mint"
+            condition_type = "Graded"
+            grader = "PSA" if "psa" in t_low else ("CGC" if "cgc" in t_low else "PSA")
+        elif "psa 9" in t_low or "cgc 9" in t_low or "mint 9" in t_low:
+            grade_num = 9.0
+            grade_label = "Mint 9"
+            condition_type = "Graded"
+            grader = "PSA" if "psa" in t_low else "CGC"
+        elif is_graded:
+            grade_num = 9.0
+            grade_label = "Graded Slab"
+            condition_type = "Graded"
+            grader = "PSA" if "psa" in t_low else ("CGC" if "cgc" in t_low else ("BGS" if "bgs" in t_low else "PSA"))
 
-    if is_psa10:
+    # Valuation
+    base_g10 = float(matched_row["est_grade10_price"]) if (matched_row is not None and matched_row["est_grade10_price"]) else 65.0
+    base_raw = float(matched_row["est_raw_price"]) if (matched_row is not None and matched_row["est_raw_price"]) else 10.0
+
+    if "pristine" in grade_label.lower():
+        grade_desc = "CGC Pristine 10 Slab"
+        fair_val = round(base_g10 * 1.6, 2)
+    elif "black label" in grade_label.lower():
+        grade_desc = "BGS Black Label 10 Slab"
+        fair_val = round(base_g10 * 2.5, 2)
+    elif condition_type == "Graded" and grade_num == 10.0:
         grade_desc = "Graded Gem Mint 10 (PSA/CGC)"
-        fair_val = float(matched_row["est_grade10_price"]) if matched_row is not None else 150.0
-    elif is_graded:
-        grade_desc = "Graded Slab (Mint 9 / Near Mint)"
-        fair_val = float(matched_row["est_raw_price"] * 2.5) if matched_row is not None else 45.0
+        fair_val = round(base_g10, 2)
+    elif condition_type == "Graded":
+        grade_desc = f"Graded Slab ({grade_label})"
+        fair_val = round(max(base_raw * 2.5, base_g10 * 0.45), 2)
     else:
         grade_desc = "Raw Single"
-        fair_val = float(matched_row["est_raw_price"]) if matched_row is not None else 25.0
+        fair_val = round(base_raw, 2)
 
-    img_url = matched_row["image_url"] if matched_row is not None and matched_row["image_url"] else DEFAULT_CARD_BACK_IMAGE
+    img_url = matched_row["image_url"] if (matched_row is not None and matched_row["image_url"]) else DEFAULT_CARD_BACK_IMAGE
+
+    cur_bid = custom_price if (custom_price is not None and custom_price > 0) else 0.0
+    ship_cost = custom_shipping if (custom_shipping is not None and custom_shipping >= 0) else 0.0
+    tot_price = round(cur_bid + ship_cost, 2)
+    disc = round(((fair_val - tot_price) / fair_val) * 100, 1) if fair_val > 0 else 0.0
 
     amazing_max = round(fair_val * 0.60, 2)
     great_max = round(fair_val * 0.75, 2)
@@ -1067,9 +1128,11 @@ def parse_ebay_url_details(url_or_id: str) -> Dict[str, Any]:
         "amazing_deal_max": amazing_max,
         "great_deal_max": great_max,
         "image_url": img_url,
-        "current_bid": 15.0,
-        "shipping_cost": 4.50,
-        "auction_end_time": (datetime.today() + pd.Timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
+        "current_bid": cur_bid,
+        "shipping_cost": ship_cost,
+        "total_price": tot_price,
+        "discount_percentage": disc,
+        "auction_end_time": (datetime.today() + pd.Timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
 
@@ -1093,7 +1156,10 @@ def add_to_sniper_watchlist(item: Dict[str, Any]) -> int:
                 :fair_market_value, :max_bid_target, :snipe_mode
             )
             ON CONFLICT(listing_id) DO UPDATE SET
+                title = excluded.title,
+                card_name = excluded.card_name,
                 current_bid = excluded.current_bid,
+                shipping_cost = excluded.shipping_cost,
                 auction_end_time = excluded.auction_end_time,
                 target_bid_mode = excluded.target_bid_mode,
                 custom_max_bid = excluded.custom_max_bid,
@@ -2100,22 +2166,35 @@ def load_market_sales_df() -> pd.DataFrame:
     return df
 
 
-def appraise_and_add_deal_listing(url_or_id: str, listing_price: float = 0.0) -> Tuple[bool, str, Dict[str, Any]]:
+def appraise_and_add_deal_listing(
+    url_or_id: str,
+    custom_title: Optional[str] = None,
+    custom_grade: Optional[str] = None,
+    listing_price: float = 0.0,
+    shipping_cost: float = 0.0,
+    listing_type: str = "Auction",
+) -> Tuple[bool, str, Dict[str, Any]]:
     """
     Appraises any eBay listing or URL against fair market value and recent comps,
     assigns deal rating (amazing_deal, great_deal, good_deal), and saves it to the AI Deal Radar.
     """
     ensure_tables_exist()
-    parsed = parse_ebay_url_details(url_or_id)
+    parsed = parse_ebay_url_details(
+        url_or_id,
+        custom_title=custom_title,
+        custom_grade=custom_grade,
+        custom_price=listing_price,
+        custom_shipping=shipping_cost,
+    )
     if not parsed or not parsed.get("item_id"):
         return False, "Could not parse eBay URL or item ID.", {}
 
     item_id = parsed["item_id"]
     title = parsed.get("title", "eBay Listing")
     fair_val = float(parsed.get("fair_value", 50.0))
-    price = float(listing_price) if listing_price > 0 else float(parsed.get("current_bid", 25.0))
-    shipping = float(parsed.get("shipping_cost", 0.0))
-    total_price = price + shipping
+    price = float(listing_price) if listing_price > 0 else float(parsed.get("current_bid", 0.0))
+    shipping = float(shipping_cost) if shipping_cost > 0 else float(parsed.get("shipping_cost", 0.0))
+    total_price = round(price + shipping, 2)
 
     # Compute discount
     if fair_val > 0 and total_price > 0:
@@ -2153,8 +2232,17 @@ def appraise_and_add_deal_listing(url_or_id: str, listing_price: float = 0.0) ->
                 :discount_percentage, :ai_rationale, :sale_date
             )
             ON CONFLICT(listing_id) DO UPDATE SET
+                title = excluded.title,
+                card_name = excluded.card_name,
+                grading_company = excluded.grading_company,
+                grade = excluded.grade,
+                grade_label = excluded.grade_label,
+                condition_type = excluded.condition_type,
+                edition = excluded.edition,
                 price = excluded.price,
+                shipping_cost = excluded.shipping_cost,
                 total_price = excluded.total_price,
+                listing_type = excluded.listing_type,
                 deal_rating = excluded.deal_rating,
                 fair_value_estimate = excluded.fair_value_estimate,
                 discount_percentage = excluded.discount_percentage,
@@ -2175,7 +2263,7 @@ def appraise_and_add_deal_listing(url_or_id: str, listing_price: float = 0.0) ->
             "total_price": total_price,
             "listing_url": parsed.get("canonical_url", ""),
             "image_url": parsed.get("image_url", DEFAULT_CARD_BACK_IMAGE),
-            "listing_type": "Auction" if "Auction" in parsed.get("title", "") else "FixedPrice",
+            "listing_type": listing_type,
             "deal_rating": deal_rating,
             "fair_value_estimate": fair_val,
             "discount_percentage": discount,
@@ -2191,6 +2279,8 @@ def appraise_and_add_deal_listing(url_or_id: str, listing_price: float = 0.0) ->
         "discount_percentage": discount,
         "fair_value_estimate": fair_val,
         "total_price": total_price,
+        "condition_type": parsed.get("condition_type"),
+        "grade": parsed.get("grade"),
     }
 
 

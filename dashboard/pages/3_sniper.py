@@ -55,7 +55,53 @@ with st.expander("➕ Add eBay Auction by Link / Item ID", expanded=True):
         custom_bid_val = st.number_input("Your Custom Max Bid ($)*", min_value=1.0, value=50.0, step=5.0, key="sniper_custom_max")
 
     if ebay_input_url:
-        parsed = parse_ebay_url_details(ebay_input_url)
+        sn_title_in = st.text_input(
+            "📝 Listing Title / Card Keywords (Paste title from eBay)",
+            placeholder="e.g. Vulpix Ex Hidden Legends 81/101 CGC Pristine 10",
+            key="sn_title_in",
+        )
+
+        col_g, col_b, col_s = st.columns(3)
+        with col_g:
+            sn_grade_choice = st.selectbox(
+                "💎 Grade / Condition",
+                [
+                    "Auto-Detect from Title",
+                    "CGC 10 Pristine",
+                    "PSA 10 Gem Mint",
+                    "CGC 10 Gem Mint",
+                    "BGS 10 Black Label",
+                    "PSA 9 Mint / CGC 9",
+                    "Raw Single",
+                ],
+                key="sn_grade_choice",
+            )
+        with col_b:
+            sn_bid_in = st.number_input(
+                "💵 Current Live Bid ($)*",
+                min_value=0.0,
+                value=3.25 if "128050827605" in ebay_input_url else 0.0,
+                step=0.50,
+                help="Enter current eBay bid price",
+                key="sn_bid_in",
+            )
+        with col_s:
+            sn_ship_in = st.number_input(
+                "📦 Shipping Cost ($)",
+                min_value=0.0,
+                value=5.40 if "128050827605" in ebay_input_url else 0.0,
+                step=0.50,
+                key="sn_ship_in",
+            )
+
+        grade_override = None if sn_grade_choice == "Auto-Detect from Title" else sn_grade_choice
+        parsed = parse_ebay_url_details(
+            ebay_input_url,
+            custom_title=sn_title_in if sn_title_in else None,
+            custom_grade=grade_override,
+            custom_price=sn_bid_in,
+            custom_shipping=sn_ship_in,
+        )
 
         if "Amazing" in bid_mode_choice:
             target_max = parsed["amazing_deal_max"]
@@ -73,16 +119,22 @@ with st.expander("➕ Add eBay Auction by Link / Item ID", expanded=True):
         grader_display = parsed.get("grading_company", "RAW")
         label_display = parsed.get("grade_label", "Raw Single")
         fair_val_display = parsed.get("fair_value", 0.0)
+        curr_bid_display = parsed.get("current_bid", 0.0)
+        ship_display = parsed.get("shipping_cost", 0.0)
+        tot_price_display = parsed.get("total_price", 0.0)
+        disc_display = parsed.get("discount_percentage", 0.0)
 
         st.markdown(f"""
-        <div style="background: #181920; border: 1px solid rgba(255, 122, 69, 0.3); border-radius: 10px; padding: 12px 16px; margin: 12px 0;">
+        <div style="background: #181920; border: 1px solid rgba(255, 122, 69, 0.3); border-radius: 10px; padding: 14px 18px; margin: 12px 0;">
             <div style="font-weight: 800; font-size: 1.05rem; color: #ffffff;">{parsed.get('title', 'eBay Auction')}</div>
             <div style="color: #8c8d9a; font-size: 0.85rem; margin-bottom: 8px;">
-                Identified: <strong>{card_display_name}</strong> ({set_display_name}) • {edition_display} • {grader_display} {label_display}
+                Identified: <strong>{card_display_name}</strong> ({set_display_name}) • {edition_display} • <span style="color: #4ade80; font-weight: 700;">{grader_display} {label_display}</span>
             </div>
-            <div style="display: flex; gap: 20px; font-size: 0.9rem;">
+            <div style="display: flex; gap: 20px; font-size: 0.9rem; flex-wrap: wrap; background: #111217; padding: 10px 14px; border-radius: 8px; margin-top: 8px;">
+                <div>Current Bid: <strong style="color: #60a5fa;">${curr_bid_display:,.2f}</strong> <span style="color: #8c8d9a;">(+${ship_display:,.2f} ship = ${tot_price_display:,.2f})</span></div>
                 <div>Fair Market Value: <strong style="color: #ffd591;">${fair_val_display:,.2f}</strong></div>
-                <div>Your Max Bid Threshold: <strong style="color: #4ade80;">${target_max:,.2f}</strong></div>
+                <div>Your Max Bid Cap: <strong style="color: #4ade80;">${target_max:,.2f}</strong></div>
+                <div>Current Discount: <strong style="color: #4ade80;">{disc_display:.1f}% OFF</strong></div>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -98,8 +150,8 @@ with st.expander("➕ Add eBay Auction by Link / Item ID", expanded=True):
                 "grade_label": label_display,
                 "condition_type": parsed.get("condition_type", "Raw"),
                 "edition": edition_display,
-                "current_bid": parsed.get("current_bid") or parsed.get("current_price", 0.0),
-                "shipping_cost": parsed.get("shipping_cost", 0.0),
+                "current_bid": curr_bid_display,
+                "shipping_cost": ship_display,
                 "max_bid_target": target_max,
                 "fair_market_value": fair_val_display,
                 "snipe_mode": target_mode_code,
@@ -107,7 +159,7 @@ with st.expander("➕ Add eBay Auction by Link / Item ID", expanded=True):
                 "auction_end_time": parsed.get("auction_end_time", datetime.today().strftime("%Y-%m-%d %H:%M:%S")),
             })
             elapsed_ms = (time.perf_counter() - t0) * 1000
-            st.session_state["sniper_flash_msg"] = f"🎯 Added '{card_display_name}' to Sniper Watchlist in {elapsed_ms:.1f}ms!"
+            st.session_state["sniper_flash_msg"] = f"🎯 Added '{parsed.get('title')}' (${curr_bid_display:,.2f}) to Sniper Watchlist in {elapsed_ms:.1f}ms!"
             st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
