@@ -3,6 +3,7 @@ The Vulpix Vault - Page 4: AI Deal Radar
 Scraped live eBay deals evaluated against fair market value with automated discount scoring.
 """
 
+import time
 import pandas as pd
 import streamlit as st
 
@@ -12,11 +13,14 @@ from styles import apply_custom_styles, render_header
 apply_custom_styles()
 render_header()
 
+if "deal_flash_msg" in st.session_state:
+    st.success(st.session_state.pop("deal_flash_msg"))
+
 st.markdown("### 🔥 Multi-Tier AI Deal Radar")
 st.markdown("Live eBay listings automatically evaluated against fair market value with automated discount scoring.")
 
 # Custom Listing Appraiser Form
-with st.expander("➕ Appraise & Add Custom eBay Listing to AI Deals", expanded=False):
+with st.expander("➕ Appraise & Add Custom eBay Listing to AI Deals", expanded=True):
     st.markdown("Paste an eBay listing link or Item ID to immediately appraise it and add it to the AI Deal Radar:")
     ad_c1, ad_c2 = st.columns([3, 1])
     with ad_c1:
@@ -25,38 +29,63 @@ with st.expander("➕ Appraise & Add Custom eBay Listing to AI Deals", expanded=
         deal_price_in = st.number_input("Listing Price ($)", min_value=0.0, value=0.0, step=5.0, help="Leave 0 to auto-extract or estimate", key="deal_price_in")
 
     if deal_url_in:
+        t_parse_0 = time.perf_counter()
         parsed_preview = parse_ebay_url_details(deal_url_in)
+        t_parse_elapsed = (time.perf_counter() - t_parse_0) * 1000
         if parsed_preview:
             p_price = deal_price_in if deal_price_in > 0 else parsed_preview.get("current_bid", 25.0)
             f_val = parsed_preview.get("fair_value", 50.0)
             disc = round(((f_val - p_price) / f_val) * 100, 1) if f_val > 0 else 0.0
-            st.info(f"**Card Identified:** `{parsed_preview.get('card_name')}` ({parsed_preview.get('set_name')}) • **Fair Value:** `${f_val:,.2f}` • **Discount:** `{disc:.1f}%`")
+            st.info(f"**Card Identified ({t_parse_elapsed:.1f}ms):** `{parsed_preview.get('card_name')}` ({parsed_preview.get('set_name')}) • **Fair Value:** `${f_val:,.2f}` • **Discount:** `{disc:.1f}%`")
 
             if st.button("🚀 Confirm & Add to AI Deal Radar", key="btn_add_to_ai_radar", type="primary"):
-                ok, msg, _ = appraise_and_add_deal_listing(deal_url_in, listing_price=deal_price_in)
+                t_appraise_0 = time.perf_counter()
+                ok, msg, data = appraise_and_add_deal_listing(deal_url_in, listing_price=deal_price_in)
+                t_appraise_elapsed = (time.perf_counter() - t_appraise_0) * 1000
                 if ok:
-                    st.success(msg)
+                    # Automatically adjust filter so newly added deal is immediately visible on screen!
+                    rating = data.get("deal_rating", "")
+                    if rating == "amazing_deal":
+                        st.session_state["deal_tier_sel"] = "🔥 Amazing Deals (>=40% Off)"
+                    elif rating == "great_deal":
+                        st.session_state["deal_tier_sel"] = "⭐ Great Deals (>=25% Off)"
+                    elif rating == "good_deal":
+                        st.session_state["deal_tier_sel"] = "All Positive Deals (>=10% Off)"
+                    else:
+                        st.session_state["deal_tier_sel"] = "All Listings & Deals"
+
+                    st.session_state["deal_flash_msg"] = f"🔥 {msg} (Saved in {t_appraise_elapsed:.1f}ms)"
                     st.rerun()
                 else:
                     st.error(msg)
 
 f1, f2 = st.columns(2)
+tier_options = [
+    "⭐ Great Deals (>=25% Off)",
+    "🔥 Amazing Deals (>=40% Off)",
+    "All Positive Deals (>=10% Off)",
+    "All Listings & Deals",
+]
+tier_map = {
+    "🔥 Amazing Deals (>=40% Off)": "amazing_deal",
+    "⭐ Great Deals (>=25% Off)": "great_and_amazing",
+    "All Positive Deals (>=10% Off)": "all_deals",
+    "All Listings & Deals": None,
+}
+
 with f1:
     deal_tier_sel = st.selectbox(
         "Minimum Discount Tier",
-        ["🔥 Amazing Deals (>=40% Off)", "⭐ Great Deals (>=25% Off)", "All Positive Deals (>=10% Off)"],
+        tier_options,
+        key="deal_tier_sel",
     )
 with f2:
     deal_cond_sel = st.selectbox(
         "Card Condition / Format",
         ["All Cards (Graded & Raw)", "Graded Slabs Only", "Raw Singles Only"],
+        key="deal_cond_sel",
     )
 
-tier_map = {
-    "🔥 Amazing Deals (>=40% Off)": "amazing_deal",
-    "⭐ Great Deals (>=25% Off)": "great_and_amazing",
-    "All Positive Deals (>=10% Off)": "all",
-}
 df_deals = load_deals_df(deal_filter=tier_map[deal_tier_sel], condition_filter=deal_cond_sel)
 
 if df_deals.empty:

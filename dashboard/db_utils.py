@@ -2337,3 +2337,48 @@ def sync_ebay_user_account(
 
     except Exception as e:
         return False, f"Connection or parsing error: {e}", {}
+
+
+def run_system_benchmark() -> Dict[str, Any]:
+    """
+    Runs a live micro-benchmark of system operations (SQLite read, write, parsing, I/O)
+    and returns exact execution latencies in milliseconds.
+    """
+    import time
+    results = {}
+
+    # 1. SQLite Read Benchmark
+    t0 = time.perf_counter()
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM master_set_catalog LIMIT 50;")
+        rows = c.fetchall()
+    t_read = (time.perf_counter() - t0) * 1000
+    results["db_read_ms"] = round(t_read, 2)
+    results["db_read_rows"] = len(rows)
+
+    # 2. SQLite Write Benchmark (with rollback/cleanup)
+    t0 = time.perf_counter()
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO market_sales (listing_id, title, card_name, price, total_price, deal_rating, listing_url)
+            VALUES ('__benchmark_test__', 'Benchmark Test', 'Vulpix', 1.0, 1.0, 'unrated', 'https://www.ebay.com')
+            ON CONFLICT(listing_id) DO UPDATE SET price = 1.0;
+        """)
+        c.execute("DELETE FROM market_sales WHERE listing_id = '__benchmark_test__';")
+    t_write = (time.perf_counter() - t0) * 1000
+    results["db_write_ms"] = round(t_write, 2)
+
+    # 3. eBay URL Parser Benchmark
+    t0 = time.perf_counter()
+    parse_ebay_url_details("https://www.ebay.com/itm/128050827605")
+    t_parse = (time.perf_counter() - t0) * 1000
+    results["parser_ms"] = round(t_parse, 2)
+
+    # 4. Overall Pipeline Latency
+    results["total_pipeline_ms"] = round(t_read + t_write + t_parse, 2)
+    results["status"] = "Fast (<50ms)" if results["total_pipeline_ms"] < 50 else ("Normal (<150ms)" if results["total_pipeline_ms"] < 150 else "Elevated (>150ms)")
+    results["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    return results

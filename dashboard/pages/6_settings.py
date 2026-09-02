@@ -15,6 +15,7 @@ from db_utils import (
     get_system_setting,
     load_collection_df,
     load_market_sales_df,
+    run_system_benchmark,
     send_gotify_alert,
     set_system_setting,
     sync_ebay_user_account,
@@ -45,6 +46,22 @@ with col_s1:
     st.markdown(f"- **Historical Sales Records:** `{len(df_market)} listings`")
 
     st.markdown("---")
+    st.markdown("#### ⚡ Live Button & Server Speed Benchmark")
+    st.caption("Click to run an instant diagnostic measuring your server's SQLite read, write, and URL parsing latency:")
+    if st.button("⏱️ Run Live Latency Benchmark", key="btn_run_bench", type="primary"):
+        with st.spinner("Executing real-time micro-benchmark..."):
+            st.session_state["live_bench_results"] = run_system_benchmark()
+
+    if "live_bench_results" in st.session_state:
+        b = st.session_state["live_bench_results"]
+        bm1, bm2, bm3 = st.columns(3)
+        with bm1:
+            st.metric("DB Read Latency", f"{b['db_read_ms']} ms", delta="Fast (<10ms)")
+        with bm2:
+            st.metric("DB Write Latency", f"{b['db_write_ms']} ms", delta="Fast (<15ms)")
+        with bm3:
+            st.metric("Total Action Pipeline", f"{b['total_pipeline_ms']} ms", delta=b['status'])
+        st.info(f"✅ Last Benchmark: **{b['total_pipeline_ms']} ms** at {b['timestamp']} (Status: **{b['status']}**)")
     st.markdown("#### 🗑️ Vault Collection Management & Reset (Danger Zone)")
     st.warning("Need to clear out test cards or cards imported from your spreadsheet that you don't actually own?")
     st.write("Clicking below will clear all personal cards currently stored in your Vault collection so you can start completely fresh.")

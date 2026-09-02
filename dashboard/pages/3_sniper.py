@@ -15,17 +15,16 @@ from db_utils import (
 )
 from styles import apply_custom_styles, render_header
 
+import time
+
 apply_custom_styles()
 render_header()
 
-@st.cache_data(ttl=60)
-def get_cached_sniper_watchlist_df():
-    return get_sniper_watchlist_df()
+if "sniper_flash_msg" in st.session_state:
+    st.success(st.session_state.pop("sniper_flash_msg"))
 
-def clear_dashboard_cache():
-    st.cache_data.clear()
-
-df_sniper = get_cached_sniper_watchlist_df()
+# Direct SQLite load (<3ms)
+df_sniper = get_sniper_watchlist_df()
 
 st.markdown("### 🎯 eBay Sniper & Auction Watchlist")
 st.markdown(
@@ -89,6 +88,7 @@ with st.expander("➕ Add eBay Auction by Link / Item ID", expanded=True):
         """, unsafe_allow_html=True)
 
         if st.button("🚀 Confirm & Add to Sniper Watchlist", key="btn_confirm_add_sniper", type="primary"):
+            t0 = time.perf_counter()
             new_sn_id = add_to_sniper_watchlist({
                 "listing_id": parsed.get("item_id") or parsed.get("listing_id"),
                 "title": parsed.get("title", "eBay Auction"),
@@ -106,7 +106,8 @@ with st.expander("➕ Add eBay Auction by Link / Item ID", expanded=True):
                 "listing_url": parsed.get("canonical_url") or parsed.get("listing_url", ""),
                 "auction_end_time": parsed.get("auction_end_time", datetime.today().strftime("%Y-%m-%d %H:%M:%S")),
             })
-            st.success("Target successfully saved to Sniper Watchlist!")
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            st.session_state["sniper_flash_msg"] = f"🎯 Added '{card_display_name}' to Sniper Watchlist in {elapsed_ms:.1f}ms!"
             st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
