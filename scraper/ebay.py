@@ -51,10 +51,16 @@ def generate_ebay_search_url(
     grade_tier: Optional[str] = None,
     is_raw: bool = False,
     is_auction_only: bool = False,
+    is_graded: bool = False,
+    **kwargs: Any,
 ) -> str:
     """
     Generates a direct, highly-targeted eBay search URL for any Vulpix card.
     """
+    if is_graded:
+        grade_tier = grade_tier or "Gem Mint 10"
+        is_raw = False
+
     query_parts = [card_name]
 
     # Clean set name (remove year parentheses)

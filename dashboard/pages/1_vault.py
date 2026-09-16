@@ -581,8 +581,8 @@ else:
                             st.markdown(f"- **Notes:** {row['notes']}")
 
                         # Quick Comps Search Links
-                        c_raw_url = generate_ebay_search_url(row["card_name"], row["set_name"], row["card_number"], is_graded=False)
-                        c_g10_url = generate_ebay_search_url(row["card_name"], row["set_name"], row["card_number"], is_graded=True)
+                        c_raw_url = generate_ebay_search_url(row["card_name"], row["set_name"], row["card_number"], is_raw=True)
+                        c_g10_url = generate_ebay_search_url(row["card_name"], row["set_name"], row["card_number"], grade_tier="PSA 10")
                         c_pc_url = get_pricecharting_search_url(row["card_name"], row["set_name"], row["card_number"])
                         st.markdown(f"""
                         <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
