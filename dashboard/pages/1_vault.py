@@ -19,14 +19,19 @@ from db_utils import (
     bulk_import_ebay_history,
     delete_card_from_collection,
     extract_text_from_screenshot,
+    generate_ebay_search_url,
     get_card_image_data_uri,
     get_csv_template_bytes,
     get_master_set_metrics,
     get_portfolio_metrics,
+    get_pricecharting_search_url,
     get_psa_cert_lookup_url,
+    get_system_setting,
     load_collection_df,
+    load_master_catalog_df,
     parse_ebay_link_to_card,
     parse_ebay_purchase_history_text,
+    sync_ebay_user_account,
     update_collection_card,
 )
 from metadata_resolver import DEFAULT_CARD_BACK_IMAGE
@@ -98,27 +103,52 @@ imp_t1, imp_t2, imp_t3, imp_t4, imp_t5 = st.tabs([
 
 # Tab 1: Manual Add Form
 with imp_t1:
+    df_m_lookup = load_master_catalog_df()
+    master_card_labels = ["-- Type Manually / Custom Card --"]
+    master_lookup_dict = {}
+    if not df_m_lookup.empty:
+        for _, m_r in df_m_lookup.iterrows():
+            lbl = f"{m_r['card_name']} ({m_r['set_name']} #{m_r['card_number']}) - {m_r['language']} [{m_r['edition']}]"
+            master_card_labels.append(lbl)
+            master_lookup_dict[lbl] = m_r
+
+    selected_master_lbl = st.selectbox(
+        "⚡ Quick Autocomplete from Master Catalog (or choose manual entry):",
+        master_card_labels,
+        key="manual_add_master_autocomplete",
+    )
+    selected_m_data = master_lookup_dict.get(selected_master_lbl)
+
+    init_name = str(selected_m_data["card_name"]) if selected_m_data is not None else "Vulpix"
+    init_set = str(selected_m_data["set_name"]) if selected_m_data is not None else "Base Set"
+    init_num = str(selected_m_data["card_number"]) if selected_m_data is not None else "68/102"
+    init_ed = str(selected_m_data["edition"]) if (selected_m_data is not None and selected_m_data["edition"] in EDITION_OPTIONS) else EDITION_OPTIONS[0]
+    init_lang = str(selected_m_data["language"]) if (selected_m_data is not None and selected_m_data["language"] in LANGUAGE_OPTIONS) else LANGUAGE_OPTIONS[0]
+    init_img = str(selected_m_data["image_url"]) if selected_m_data is not None else ""
+    init_price = float(selected_m_data["est_raw_price"] or 15.0) if selected_m_data is not None else 25.0
+    init_master_id = int(selected_m_data["id"]) if selected_m_data is not None else None
+
     with st.form("manual_add_card_form", clear_on_submit=True):
         f_c1, f_c2 = st.columns(2)
         with f_c1:
-            card_name = st.text_input("Card Name*", value="Vulpix")
-            set_name = st.text_input("Set / Expansion*", value="Base Set")
-            card_num = st.text_input("Card Number", value="68/102")
+            card_name = st.text_input("Card Name*", value=init_name)
+            set_name = st.text_input("Set / Expansion*", value=init_set)
+            card_num = st.text_input("Card Number", value=init_num)
             condition_type = st.radio("Condition Category*", ["Graded Slab", "Raw Single"], horizontal=True)
             grader = st.selectbox("Grading Company", ["RAW", "PSA", "CGC", "BGS", "ARS", "ACE"]) if condition_type == "Graded Slab" else "RAW"
             grade_num = st.number_input("Numerical Grade", min_value=0.0, max_value=10.0, value=10.0 if condition_type == "Graded Slab" else 0.0, step=0.5)
         with f_c2:
             grade_label = st.selectbox("Grade Label Tier", ["Raw Single", "Gem Mint", "Pristine 10", "Black Label 10", "Mint 9", "Near Mint 8", "Ungraded"])
             cert_num = st.text_input("Certification Number (Slab Cert #)", placeholder="e.g. 84729103")
-            buy_price = st.number_input("Purchase Price ($)*", min_value=0.0, value=25.0, step=5.0)
+            buy_price = st.number_input("Purchase Price ($)*", min_value=0.0, value=init_price, step=5.0)
             buy_date = st.date_input("Purchase Date", value=datetime.today())
-            edition = st.selectbox("Edition / Rarity", EDITION_OPTIONS)
-            language = st.selectbox("Language", LANGUAGE_OPTIONS)
+            edition = st.selectbox("Edition / Rarity", EDITION_OPTIONS, index=EDITION_OPTIONS.index(init_ed) if init_ed in EDITION_OPTIONS else 0)
+            language = st.selectbox("Language", LANGUAGE_OPTIONS, index=LANGUAGE_OPTIONS.index(init_lang) if init_lang in LANGUAGE_OPTIONS else 0)
 
         is_err = st.checkbox("Is Error / Misprint Card?")
         err_desc = st.text_input("Error Description", placeholder="e.g. Blue Ink Drop Error, HP 50 Error") if is_err else ""
-        custom_img_url = st.text_input("Custom Image URL (Optional)", placeholder="e.g. eBay image link or uploaded scan")
-        notes = st.text_area("Personal Notes / Provenance", placeholder="e.g. Won on eBay auction, subgrade details...")
+        custom_img_url = st.text_input("Custom Image (Local Path or Web URL)", value=init_img)
+        notes = st.text_area("Personal Notes / Provenance", placeholder="e.g. Won on eBay auction, pulled from pack...")
         submit_add = st.form_submit_button("💾 Save Card to Vault")
 
         if submit_add:
@@ -141,14 +171,30 @@ with imp_t1:
                     "error_type": err_desc if is_err else None,
                     "is_raw": 1 if condition_type == "Raw Single" else 0,
                     "image_url": custom_img_url if custom_img_url else None,
+                    "master_card_id": init_master_id,
                     "notes": notes,
                 })
                 st.success(f"Added {card_name} to your Vault!")
                 st.rerun()
 
-# Tab 2: 1-Click eBay Link Import
+# Tab 2: 1-Click eBay Link Import & Account Sync
 with imp_t2:
-    st.markdown("Paste an eBay listing link or Item ID to auto-extract details and authentic artwork:")
+    with st.expander("⚡ 1-Click Auto-Sync Won Purchases from eBay API", expanded=False):
+        st.markdown("Connect to your eBay account to automatically import all recently won auctions into your Vault:")
+        if st.button("🚀 Sync Won Auctions Now", key="btn_sync_ebay_won_vault", type="primary"):
+            user_tok = get_system_setting("EBAY_USER_TOKEN") or os.getenv("EBAY_USER_TOKEN", "")
+            if not user_tok:
+                st.warning("⚠️ eBay User Auth Token is not configured yet. Please enter your User Token in Settings to enable 1-click account sync.")
+            else:
+                with st.spinner("Connecting to eBay Trading API to pull your won list..."):
+                    ok_s, msg_s, d_s = sync_ebay_user_account(user_token=user_tok)
+                    if ok_s:
+                        st.success(msg_s)
+                        st.rerun()
+                    else:
+                        st.error(msg_s)
+
+    st.markdown("Or paste an individual eBay listing link or Item ID to auto-extract details:")
     ebay_url_input = st.text_input(
         "eBay Listing Link or Item ID",
         placeholder="e.g. https://www.ebay.com/itm/2019-POKEMON-SUN-MOON-ALOLAN-VULPIX-PSA-10/161422818572",
@@ -354,16 +400,54 @@ if deleting_id:
 if df_col.empty:
     st.info("💡 Your Vault is currently empty. Use any of the import tools above to add cards!")
 else:
-    v_col1, v_col2, v_col3 = st.columns([2, 1.5, 1.5])
-    with v_col1:
+    v_top1, v_top2 = st.columns([2, 3])
+    with v_top1:
         st.markdown(f"#### 🏆 Your Collection ({len(df_col)} Items)")
-    with v_col2:
+    with v_top2:
+        v_search_query = st.text_input("🔍 Search Vault", placeholder="Search card name, set, #, or cert...", key="vault_search_box")
+
+    f_col1, f_col2, f_col3 = st.columns([2, 1.2, 1.2])
+    with f_col1:
+        status_filter = st.selectbox(
+            "Filter by Collection Status:",
+            [
+                "All Cards in Vault",
+                "🔄 Upgrade Candidates (Raw or Sub-10)",
+                "👑 Peak Grade 10s (Gem Mint & Pristine 10)",
+                "Raw Singles Only",
+                "Graded Slabs Only",
+            ],
+            key="vault_status_filter",
+        )
+    with f_col2:
         per_page_choice = st.selectbox("Cards per page:", [12, 24, 48, "All"], index=0, key="vault_per_page")
-    with v_col3:
+    with f_col3:
         view_mode = st.radio("Display Layout:", ["🃏 Card Grid View", "📋 Table / List View"], horizontal=True, key="vault_v_mode")
 
-    per_page = len(df_col) if per_page_choice == "All" or len(df_col) == 0 else int(per_page_choice)
-    total_pages = max(1, (len(df_col) + per_page - 1) // per_page) if per_page > 0 else 1
+    df_filtered = df_col.copy()
+    if status_filter == "🔄 Upgrade Candidates (Raw or Sub-10)":
+        df_filtered = df_filtered[df_filtered["is_upgrade_candidate"] == 1]
+        st.info(f"💡 Showing **{len(df_filtered)} Upgrade Candidates** in your Vault (cards owned as Raw or Sub-10 ready to be upgraded to a Pristine 10 / PSA 10).")
+    elif status_filter == "👑 Peak Grade 10s (Gem Mint & Pristine 10)":
+        df_filtered = df_filtered[(df_filtered["is_raw"] == 0) & (df_filtered["grade"] >= 10.0)]
+        st.success(f"👑 Showing **{len(df_filtered)} Peak Grade 10 Slabs** (Gem Mint & Pristine 10).")
+    elif status_filter == "Raw Singles Only":
+        df_filtered = df_filtered[df_filtered["is_raw"] == 1]
+    elif status_filter == "Graded Slabs Only":
+        df_filtered = df_filtered[df_filtered["is_raw"] == 0]
+
+    if v_search_query:
+        sq = v_search_query.strip().lower()
+        df_filtered = df_filtered[
+            df_filtered["card_name"].str.lower().str.contains(sq, na=False) |
+            df_filtered["set_name"].str.lower().str.contains(sq, na=False) |
+            df_filtered["card_number"].astype(str).str.lower().str.contains(sq, na=False) |
+            df_filtered["cert_number"].astype(str).str.lower().str.contains(sq, na=False) |
+            df_filtered["grade_label"].astype(str).str.lower().str.contains(sq, na=False)
+        ]
+
+    per_page = len(df_filtered) if per_page_choice == "All" or len(df_filtered) == 0 else int(per_page_choice)
+    total_pages = max(1, (len(df_filtered) + per_page - 1) // per_page) if per_page > 0 else 1
 
     if total_pages > 1:
         pg_c1, pg_c2, pg_c3 = st.columns([1, 2, 1])
@@ -373,11 +457,11 @@ else:
         page_num = 1
 
     start_idx = (page_num - 1) * per_page
-    end_idx = min(start_idx + per_page, len(df_col))
-    page_col_df = df_col.iloc[start_idx:end_idx]
+    end_idx = min(start_idx + per_page, len(df_filtered))
+    page_col_df = df_filtered.iloc[start_idx:end_idx]
 
     if total_pages > 1:
-        st.caption(f"Showing cards **{start_idx + 1}–{end_idx}** of **{len(df_col)}** (Page {page_num} of {total_pages})")
+        st.caption(f"Showing cards **{start_idx + 1}–{end_idx}** of **{len(df_filtered)}** (Page {page_num} of {total_pages})")
 
     if "Card Grid" in view_mode:
         grid_cols = st.columns(3)
@@ -464,17 +548,60 @@ else:
                         st.markdown(f"**Edition:** {row['edition']} • **Language:** {row['language']}")
                         if row["is_error"] == 1 and row.get("error_type"):
                             st.error(f"**⚠️ Known Card Errors & Misprints:**\n\n{row['error_type']}")
+
+                        # Upgrade Intelligence in Popover
+                        if row.get("is_upgrade_candidate"):
+                            target_val = float(row.get("est_grade10_target") or 0.0)
+                            u_delta = float(row.get("upgrade_value_delta") or 0.0)
+                            st.markdown(f"""
+                            <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 8px 12px; margin: 8px 0;">
+                                <div style="font-weight: 700; color: #f59e0b; font-size: 0.85rem;">🔄 Upgrade Candidate</div>
+                                <div style="font-size: 0.82rem; color: #cbd5e1;">Target: <strong>CGC Pristine 10 / PSA 10</strong></div>
+                                <div style="font-size: 0.82rem; color: #ffd591;">Est. Pristine Value: <strong>${target_val:,.2f}</strong> (+${u_delta:,.2f} gain)</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        elif int(row.get("is_raw") or 0) == 0 and float(row.get("grade") or 0) >= 10.0:
+                            st.markdown(f"""
+                            <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 8px 12px; margin: 8px 0;">
+                                <div style="font-weight: 700; color: #10b981; font-size: 0.85rem;">👑 Peak Grade Achieved</div>
+                                <div style="font-size: 0.82rem; color: #cbd5e1;">{row['grading_company']} {row['grade_label']} Slab</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                        p_g10 = int(row.get("pop_grade10") or 0)
+                        p_p10 = int(row.get("pop_pristine10") or 0)
+                        if p_g10 > 0 or p_p10 > 0:
+                            st.markdown(f"**📊 Population:** PSA 10: `{p_g10}` | Pristine 10: `{p_p10}`")
+
                         st.markdown(f"- **Purchase Price:** `${row['purchase_price']:,.2f}` on {row['purchase_date']}")
                         st.markdown(f"- **Est. Market Value:** `${row['current_market_value']:,.2f}` ({gain_sign}${row['unrealized_gain']:,.2f})")
                         if row.get("cert_number"):
                             st.markdown(f"- **Cert #:** `{row['cert_number']}` ({row['grading_company']} {row['grade_label']})")
                         if row.get("notes"):
                             st.markdown(f"- **Notes:** {row['notes']}")
+
+                        # Quick Comps Search Links
+                        c_raw_url = generate_ebay_search_url(row["card_name"], row["set_name"], row["card_number"], is_graded=False)
+                        c_g10_url = generate_ebay_search_url(row["card_name"], row["set_name"], row["card_number"], is_graded=True)
+                        c_pc_url = get_pricecharting_search_url(row["card_name"], row["set_name"], row["card_number"])
+                        st.markdown(f"""
+                        <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
+                            <a href="{c_raw_url}" target="_blank" style="font-size: 0.75rem; color: #60a5fa; text-decoration: none; background: #181920; padding: 3px 8px; border-radius: 4px; border: 1px solid #334155;">🔍 Raw Comps ↗</a>
+                            <a href="{c_g10_url}" target="_blank" style="font-size: 0.75rem; color: #f59e0b; text-decoration: none; background: #181920; padding: 3px 8px; border-radius: 4px; border: 1px solid #334155;">💎 PSA 10 Comps ↗</a>
+                            <a href="{c_pc_url}" target="_blank" style="font-size: 0.75rem; color: #10b981; text-decoration: none; background: #181920; padding: 3px 8px; border-radius: 4px; border: 1px solid #334155;">📊 Charting ↗</a>
+                        </div>
+                        """, unsafe_allow_html=True)
     else:
+        # Table / List View
+        df_display_tbl = page_col_df.copy()
+        df_display_tbl["Status"] = df_display_tbl.apply(
+            lambda r: "👑 Peak 10" if (r["is_raw"] == 0 and r["grade"] >= 10.0) else ("🔄 Upgrade" if r["is_upgrade_candidate"] == 1 else "Standard"),
+            axis=1
+        )
         st.dataframe(
-            df_col[[
+            df_display_tbl[[
                 "card_name", "set_name", "card_number", "grading_company",
-                "grade_label", "cert_number", "edition", "language",
+                "grade_label", "Status", "cert_number", "edition", "language",
                 "purchase_price", "current_market_value", "unrealized_gain", "roi_percent", "notes"
             ]].rename(columns={
                 "card_name": "Card Name",

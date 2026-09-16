@@ -364,11 +364,17 @@ def get_card_image_data_uri(img_path_or_url: str) -> str:
         return DEFAULT_CARD_BACK_IMAGE
 
     str_path = str(img_path_or_url).strip()
+
+    # Prioritize locally cached static file if it exists on disk
+    base_name = os.path.basename(str_path)
+    cards_dir = os.path.join(os.path.dirname(__file__), "static", "cards")
+    if base_name and os.path.exists(os.path.join(cards_dir, base_name)):
+        return f"app/static/cards/{base_name}"
+
     if str_path.startswith("http://") or str_path.startswith("https://") or str_path.startswith("data:image"):
         return str_path
 
-    # If it's a local card file, serve via Streamlit static route
-    base_name = os.path.basename(str_path)
+    # If it's a relative/local card path, serve via Streamlit static route
     if base_name:
         return f"app/static/cards/{base_name}"
 
@@ -1917,7 +1923,7 @@ def extract_text_from_screenshot(image_file_or_bytes: Any) -> str:
 # =============================================================
 
 def load_collection_df() -> pd.DataFrame:
-    """Load user's collection with calculated market valuations."""
+    """Load user's collection with calculated market valuations and upgrade intelligence."""
     ensure_tables_exist()
     with get_db_connection() as conn:
         df_col = pd.read_sql_query("SELECT * FROM my_collection ORDER BY purchase_date DESC", conn)
@@ -1925,7 +1931,7 @@ def load_collection_df() -> pd.DataFrame:
             "SELECT card_name, grading_company, grade, grade_label, condition_type, total_price, sale_date, scraped_at FROM market_sales ORDER BY COALESCE(sale_date, scraped_at) DESC",
             conn,
         )
-        df_master = pd.read_sql_query("SELECT id, card_name, set_name, card_number, est_raw_price, est_grade10_price FROM master_set_catalog", conn)
+        df_master = pd.read_sql_query("SELECT id, card_name, set_name, card_number, est_raw_price, est_grade10_price, pop_grade10, pop_pristine10, release_year, rarity FROM master_set_catalog", conn)
 
     if df_col.empty:
         return df_col
@@ -1937,12 +1943,18 @@ def load_collection_df() -> pd.DataFrame:
     est_values = []
     gain_dollars = []
     roi_percents = []
+    g10_targets = []
+    upgrade_deltas = []
+    is_upgrade_flags = []
+    pops_g10 = []
+    pops_p10 = []
 
     for _, row in df_col.iterrows():
-        is_raw = row.get("is_raw", 0)
+        is_raw = int(row.get("is_raw", 0) or 0)
         cond = "Raw" if is_raw == 1 else "Graded"
         card_name_str = str(row["card_name"])
-        cost = float(row["purchase_price"])
+        cost = float(row["purchase_price"] or 0.0)
+        grade_num = float(row.get("grade") or 0.0)
 
         # Master Catalog fair value floor
         mid = row.get("master_card_id")
@@ -1952,15 +1964,22 @@ def load_collection_df() -> pd.DataFrame:
             m_info = master_by_key.get(k)
 
         master_floor = 0.0
+        m_g10 = 0.0
+        p_g10 = 0
+        p_p10 = 0
         if m_info is not None:
+            m_raw = float(m_info.get("est_raw_price") or 0.0)
+            m_g10 = float(m_info.get("est_grade10_price") or 0.0)
+            p_g10 = int(m_info.get("pop_grade10") or 0)
+            p_p10 = int(m_info.get("pop_pristine10") or 0)
+
             if is_raw == 1:
-                master_floor = float(m_info.get("est_raw_price") or 0.0)
+                master_floor = m_raw
             else:
-                grade_num = float(row.get("grade") or 0.0)
                 if grade_num >= 10.0:
-                    master_floor = float(m_info.get("est_grade10_price") or 0.0)
+                    master_floor = m_g10
                 else:
-                    master_floor = float(m_info.get("est_raw_price") or 0.0) * (2.0 if grade_num >= 9.0 else 1.2)
+                    master_floor = m_raw * (2.0 if grade_num >= 9.0 else 1.2)
 
         # Fast match recent market sales
         matched_prices = []
@@ -1999,13 +2018,28 @@ def load_collection_df() -> pd.DataFrame:
         gain = round(current_val - cost, 2)
         roi = round((gain / cost) * 100, 1) if cost > 0 else 0.0
 
+        # Upgrade Intelligence
+        is_candidate = 1 if (is_raw == 1 or grade_num < 10.0) else 0
+        target_g10_val = m_g10 if m_g10 > 0 else round(current_val * 2.5, 2)
+        delta_val = max(0.0, round(target_g10_val - current_val, 2)) if is_candidate else 0.0
+
         est_values.append(current_val)
         gain_dollars.append(gain)
         roi_percents.append(roi)
+        g10_targets.append(target_g10_val)
+        upgrade_deltas.append(delta_val)
+        is_upgrade_flags.append(is_candidate)
+        pops_g10.append(p_g10)
+        pops_p10.append(p_p10)
 
     df_col["current_market_value"] = est_values
     df_col["unrealized_gain"] = gain_dollars
     df_col["roi_percent"] = roi_percents
+    df_col["est_grade10_target"] = g10_targets
+    df_col["upgrade_value_delta"] = upgrade_deltas
+    df_col["is_upgrade_candidate"] = is_upgrade_flags
+    df_col["pop_grade10"] = pops_g10
+    df_col["pop_pristine10"] = pops_p10
     return df_col
 
 
