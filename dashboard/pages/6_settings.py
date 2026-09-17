@@ -155,70 +155,71 @@ with st.form("ebay_api_settings_form"):
     with eb_btn2:
         sync_eb_now = st.form_submit_button("🔄 Auto-Sync Watchlist & Purchases", type="primary")
 
-    if save_eb_creds:
-        set_system_setting("EBAY_USER_TOKEN", in_ebay_token.strip())
-        set_system_setting("EBAY_APP_ID", in_ebay_app_id.strip())
-        set_system_setting("EBAY_CERT_ID", in_ebay_cert_id.strip())
-        set_system_setting("EBAY_DEV_ID", in_ebay_dev_id.strip())
-        st.success("eBay API credentials saved successfully!")
+if save_eb_creds:
+    set_system_setting("EBAY_USER_TOKEN", in_ebay_token.strip())
+    set_system_setting("EBAY_APP_ID", in_ebay_app_id.strip())
+    set_system_setting("EBAY_CERT_ID", in_ebay_cert_id.strip())
+    set_system_setting("EBAY_DEV_ID", in_ebay_dev_id.strip())
+    st.success("eBay API credentials saved successfully!")
 
-    if sync_eb_now:
-        set_system_setting("EBAY_USER_TOKEN", in_ebay_token.strip())
-        set_system_setting("EBAY_APP_ID", in_ebay_app_id.strip())
-        set_system_setting("EBAY_CERT_ID", in_ebay_cert_id.strip())
-        set_system_setting("EBAY_DEV_ID", in_ebay_dev_id.strip())
-        with st.spinner("Connecting to eBay Trading API and syncing account data..."):
-            ok, msg, stats = sync_ebay_user_account(
-                user_token=in_ebay_token.strip(),
-                app_id=in_ebay_app_id.strip(),
-                dev_id=in_ebay_dev_id.strip(),
-                cert_id=in_ebay_cert_id.strip(),
-            )
-            st.session_state["ebay_sync_result"] = (ok, msg, stats)
+if sync_eb_now:
+    set_system_setting("EBAY_USER_TOKEN", in_ebay_token.strip())
+    set_system_setting("EBAY_APP_ID", in_ebay_app_id.strip())
+    set_system_setting("EBAY_CERT_ID", in_ebay_cert_id.strip())
+    set_system_setting("EBAY_DEV_ID", in_ebay_dev_id.strip())
+    with st.spinner("Connecting to eBay Trading API and syncing account data..."):
+        ok, msg, stats = sync_ebay_user_account(
+            user_token=in_ebay_token.strip(),
+            app_id=in_ebay_app_id.strip(),
+            dev_id=in_ebay_dev_id.strip(),
+            cert_id=in_ebay_cert_id.strip(),
+        )
+        st.session_state["ebay_sync_result"] = (ok, msg, stats)
 
-    if "ebay_sync_result" in st.session_state:
-        ok, msg, stats = st.session_state["ebay_sync_result"]
-        st.markdown("---")
-        if ok:
-            st.success(f"✅ {msg}")
-            s_c1, s_c2, s_c3, s_c4 = st.columns(4)
-            s_c1.metric("New Cards Added", stats.get("won_added", 0))
-            s_c2.metric("Duplicates Skipped", stats.get("skipped_dup", 0))
-            s_c3.metric("Non-Vulpix Excluded", stats.get("skipped_non_vulpix", 0))
-            s_c4.metric("Watchlist / Bids", f"{stats.get('watch_count', 0)} / {stats.get('bid_count', 0)}")
-        else:
-            st.error(f"❌ {msg}")
-
+if "ebay_sync_result" in st.session_state:
+    ok, msg, stats = st.session_state["ebay_sync_result"]
     st.markdown("---")
-    st.markdown("### 🗄️ Database & Collection Maintenance")
-    st.caption("Manage your local SQLite collection data, remove duplicate records, or reset sample data.")
+    if ok:
+        st.success(f"✅ {msg}")
+        s_c1, s_c2, s_c3, s_c4 = st.columns(4)
+        s_c1.metric("New Cards Added", stats.get("won_added", 0))
+        s_c2.metric("Duplicates Skipped", stats.get("skipped_dup", 0))
+        s_c3.metric("Non-Vulpix Excluded", stats.get("skipped_non_vulpix", 0))
+        s_c4.metric("Watchlist / Bids", f"{stats.get('watch_count', 0)} / {stats.get('bid_count', 0)}")
+    else:
+        st.error(f"❌ {msg}")
 
-    m_row1_c1, m_row1_c2 = st.columns([1, 1])
-    with m_row1_c1:
-        if st.button("✨ Load / Reset My 19 Real Cards (Feb-Jun 2026)", type="primary", use_container_width=True, help="Wipes sample cards and populates your 19 authentic Vulpix purchases with exact grades and prices ($701.21)."):
-            cnt, val = populate_real_user_collection(clear_first=True)
-            st.cache_data.clear()
-            st.success(f"🎉 Successfully populated {cnt} authentic Vulpix cards (${val:.2f} total investment) into your Vault!")
-            st.rerun()
+st.markdown("---")
+st.markdown("### 🗄️ Database & Collection Maintenance")
+st.caption("Manage your local SQLite collection data, remove duplicate records, or reset sample data.")
 
-    with m_row1_c2:
-        if st.button("🧹 Clean Duplicate Cards", use_container_width=True, help="Scans your collection and removes exact duplicate entries, keeping the earliest."):
-            n = remove_collection_duplicates()
-            st.success(f"Cleaned up {n} duplicate card records!")
-            st.rerun()
+m_row1_c1, m_row1_c2 = st.columns([1, 1])
+with m_row1_c1:
+    if st.button("✨ Load / Reset My 19 Real Cards (Feb-Jun 2026)", type="primary", use_container_width=True, help="Wipes sample cards and populates your 19 authentic Vulpix purchases with exact grades and prices ($701.21)."):
+        cnt, val = populate_real_user_collection(clear_first=True)
+        st.cache_data.clear()
+        st.success(f"🎉 Successfully populated {cnt} authentic Vulpix cards (${val:.2f} total investment) into your Vault!")
+        st.rerun()
 
-    m_row2_c1, m_row2_c2 = st.columns([1, 1])
-    with m_row2_c1:
-        if st.button("🗑️ Remove Sample Template Cards", use_container_width=True, help="Removes the 29 pre-seeded starter cards (dated Aug 29, 2026) so only your real cards remain."):
-            n = clear_sample_collection_cards()
-            st.success(f"Removed {n} sample template cards!")
-            st.rerun()
+with m_row1_c2:
+    if st.button("🧹 Clean Duplicate Cards", use_container_width=True, help="Scans your collection and removes exact duplicate entries, keeping the earliest."):
+        n = remove_collection_duplicates()
+        st.success(f"Cleaned up {n} duplicate card records!")
+        st.rerun()
 
-    with m_row2_c2:
-        if st.button("⚠️ Wipe Entire Collection", use_container_width=True, help="Deletes all cards from my_collection so you can do a fresh import."):
-            n = clear_entire_collection()
-            st.warning(f"Collection reset. Cleared {n} cards.")
-            st.rerun()
+m_row2_c1, m_row2_c2 = st.columns([1, 1])
+with m_row2_c1:
+    if st.button("🗑️ Remove Sample Template Cards", use_container_width=True, help="Removes the 29 pre-seeded starter cards (dated Aug 29, 2026) so only your real cards remain."):
+        n = clear_sample_collection_cards()
+        st.success(f"Removed {n} sample template cards!")
+        st.rerun()
+
+with m_row2_c2:
+    if st.button("⚠️ Wipe Entire Collection", use_container_width=True, help="Deletes all cards from my_collection so you can do a fresh import."):
+        n = clear_entire_collection()
+        st.warning(f"Collection reset. Cleared {n} cards.")
+        st.rerun()
+
 
 
 

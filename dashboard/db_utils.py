@@ -22,6 +22,174 @@ import pandas as pd
 
 from metadata_resolver import DEFAULT_CARD_BACK_IMAGE, VULPIX_KNOWN_SET_INDEX, extract_base_number, normalize_str, resolve_card_metadata
 
+def normalize_language(lang: str) -> str:
+    """Standardizes language name across master catalog, collection, and scrapers."""
+    l = (lang or "").lower().strip()
+    if not l or l == "all":
+        return "all"
+    if "trad" in l or "t. chinese" in l or "chinese" in l or "s. chinese" in l:
+        return "chinese"
+    if "japan" in l or l.startswith("jp"):
+        return "japanese"
+    if "korea" in l or l.startswith("kr"):
+        return "korean"
+    if "eng" in l or l.startswith("en"):
+        return "english"
+    if "german" in l or "deutsch" in l or l.startswith("de"):
+        return "german"
+    if "french" in l or "francais" in l or l.startswith("fr"):
+        return "french"
+    if "italian" in l or l.startswith("it"):
+        return "italian"
+    if "dutch" in l or "nederlands" in l or l.startswith("nl"):
+        return "dutch"
+    if "portug" in l or l.startswith("pt"):
+        return "portuguese"
+    if "span" in l or l.startswith("es"):
+        return "spanish"
+    if "indones" in l or l.startswith("id"):
+        return "indonesian"
+    return l
+
+
+def normalize_edition_type(ed: str) -> str:
+    """Normalizes edition / variant string for accurate matching."""
+    s = (ed or "").lower().strip()
+    if "1st" in s or "first" in s:
+        return "1st_edition"
+    if "shadowless" in s:
+        return "shadowless"
+    if "4th" in s or "1999-2000" in s:
+        return "4th_print"
+    if "master ball" in s:
+        return "master_ball"
+    if "poke ball" in s or "pokeball" in s:
+        return "poke_ball"
+    if "reverse" in s:
+        return "reverse_holo"
+    if "holo" in s and "reverse" not in s:
+        return "holo"
+    if "illustration rare" in s or "art rare" in s or "ar" in s.split():
+        return "illustration_rare"
+    if "promo" in s:
+        return "promo"
+    if "shiny" in s:
+        return "shiny"
+    if "paper safari" in s:
+        return "paper_safari"
+    if "black 2" in s:
+        return "black_2"
+    if "with rarity" in s:
+        return "with_rarity_symbol"
+    if "no rarity" in s:
+        return "no_rarity_symbol"
+    return "unlimited"
+
+
+def is_stamped_variant(ed: str) -> bool:
+    """Detects if an edition is a specific stamped release (calendar, event, store)."""
+    s = (ed or "").lower()
+    return any(k in s for k in ["stamp", "calendar", "toys r us", "build-a-bear", "wcs"])
+
+
+def is_true_error(row: Any) -> bool:
+    """Checks if a card record is a genuine printing error (not just an ultra rare variant)."""
+    if isinstance(row, dict):
+        if not row.get("is_error"):
+            return False
+        desc = str(row.get("error_description") or row.get("error_type") or "").lower()
+    else:
+        try:
+            if not row["is_error"]:
+                return False
+            desc = str(row["error_description"] if "error_description" in row else row.get("error_type", "")).lower()
+        except Exception:
+            return False
+    return "error" in desc or "misprint" in desc or "blue ink" in desc or "symbol error" in desc or "stamp error" in desc
+
+
+def cards_match(col_card: Any, master_card: Any) -> bool:
+    """
+    Authoritative matching engine between a personal collection card and a master catalog row.
+    Strictly verifies language, error status, character name, edition, and set name.
+    """
+    # 1. Language check (Mandatory - NEVER match different languages)
+    c_lang = normalize_language(col_card.get("language", ""))
+    m_lang = normalize_language(master_card.get("language", ""))
+    if c_lang != m_lang:
+        return False
+
+    # 2. Error flag check (Mandatory - NEVER match normal cards to error cards or vice versa)
+    c_err = 1 if col_card.get("is_error") else 0
+    m_err = 1 if is_true_error(master_card) else 0
+    if c_err != m_err:
+        return False
+
+    # 3. Card name check (Mandatory character check)
+    c_name = normalize_str(col_card.get("card_name", ""))
+    m_name = normalize_str(master_card.get("card_name", ""))
+    for sub in ["blaine", "brock", "light", "alolan", "pikachu", "vstar"]:
+        if (sub in c_name) != (sub in m_name):
+            return False
+
+    # 4. Stamp / promo check
+    c_ed_raw = str(col_card.get("edition", ""))
+    m_ed_raw = str(master_card.get("edition", ""))
+    if is_stamped_variant(m_ed_raw) != is_stamped_variant(c_ed_raw):
+        return False
+
+    # 5. Reverse holo check
+    c_ed = normalize_edition_type(c_ed_raw)
+    m_ed = normalize_edition_type(m_ed_raw)
+    c_is_rh = c_ed in ["reverse_holo", "poke_ball", "master_ball"]
+    m_is_rh = m_ed in ["reverse_holo", "poke_ball", "master_ball"]
+    if c_is_rh != m_is_rh:
+        return False
+
+    # 6. 1st Edition check
+    if (c_ed == "1st_edition") != (m_ed == "1st_edition"):
+        return False
+
+    # 7. Direct ID match IF master_card_id is set
+    mid = col_card.get("master_card_id")
+    if mid and pd.notna(mid) and int(mid) == master_card["id"]:
+        return True
+
+    # Fallback Matching (when master_card_id is not set or not matching)
+    # 8. Card number check
+    c_num = extract_base_number(str(col_card.get("card_number", "")))
+    m_num = extract_base_number(str(master_card.get("card_number", "")))
+    if c_num and m_num and c_num != m_num:
+        return False
+    # If one has card number and the other is empty, do not blindly match unless set is unique
+    if (c_num and not m_num) or (m_num and not c_num):
+        c_set_raw = str(col_card.get("set_name", "")).lower()
+        if not ("playing" in c_set_raw or "darkness" in c_set_raw or "destiny" in c_set_raw):
+            return False
+
+    # 9. Set name check (allowing common set name aliases)
+    c_set = normalize_str(col_card.get("set_name", ""))
+    m_set = normalize_str(master_card.get("set_name", ""))
+    
+    if ("gym heroes" in c_set and "gym challenge" in m_set) or ("gym challenge" in c_set and "gym heroes" in m_set):
+        return False
+    if ("challenge from darkness" in m_set and "destiny" in c_set):
+        return False
+
+    set_matched = (
+        c_set == m_set
+        or (c_set in m_set or m_set in c_set)
+        or ("destiny" in c_set and "darkness and to light" in m_set)
+        or ("darkness and to light" in c_set and "destiny" in m_set)
+        or ("151" in c_set and "151" in m_set)
+        or ("playing" in c_set and "playing" in m_set)
+    )
+    if not set_matched:
+        return False
+
+    return True
+
+
 def get_db_path() -> str:
     path = os.getenv("DB_PATH")
     if not path:
@@ -212,6 +380,93 @@ def ensure_tables_exist():
 
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_master_search ON master_set_catalog(card_name, set_name, language, edition);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_lookup ON market_sales(card_name, grading_company, grade, condition_type);")
+
+        _seed_master_cards_if_missing(cursor)
+
+
+def _seed_master_cards_if_missing(cursor: sqlite3.Cursor):
+    """Ensures authentic niche & promo cards from the real collection exist in master_set_catalog."""
+    extra_cards = [
+        {
+            "card_name": "Alolan Vulpix",
+            "set_name": "Playing Cards",
+            "card_number": "8",
+            "release_year": 2020,
+            "language": "Korean",
+            "edition": "Ninety-Nine",
+            "rarity": "Playing Card",
+            "is_error": 0,
+            "error_description": "",
+            "est_raw_price": 5.0,
+            "est_grade10_price": 26.0,
+            "image_url": "dashboard/static/cards/playing_cards_korean.jpg",
+            "notes": "2020 Pokemon Playing Cards Korean Ninety-Nine 8 Alolan Vulpix",
+        },
+        {
+            "card_name": "Alolan Vulpix",
+            "set_name": "Daiichi Pan Promo",
+            "card_number": "293/SM-P",
+            "release_year": 2018,
+            "language": "Japanese",
+            "edition": "Promo",
+            "rarity": "Promo",
+            "is_error": 0,
+            "error_description": "",
+            "est_raw_price": 15.0,
+            "est_grade10_price": 52.0,
+            "image_url": "https://images.pokemontcg.io/smp/293_hires.png",
+            "notes": "2018 Daiichi Pan Pokemon Bread Promo #293/SM-P",
+        },
+        {
+            "card_name": "Alolan Vulpix",
+            "set_name": "Incandescent Arcana",
+            "card_number": "023/068",
+            "release_year": 2022,
+            "language": "Japanese",
+            "edition": "Unlimited",
+            "rarity": "Common",
+            "is_error": 0,
+            "error_description": "",
+            "est_raw_price": 2.0,
+            "est_grade10_price": 27.0,
+            "image_url": "https://images.pokemontcg.io/swsh12/33_hires.png",
+            "notes": "2022 Japanese Incandescent Arcana S11a #023/068",
+        },
+        {
+            "card_name": "Vulpix",
+            "set_name": "Mega Brave",
+            "card_number": "067/066",
+            "release_year": 2025,
+            "language": "Japanese",
+            "edition": "Art Rare (AR)",
+            "rarity": "Art Rare",
+            "is_error": 0,
+            "error_description": "",
+            "est_raw_price": 10.0,
+            "est_grade10_price": 31.0,
+            "image_url": "dashboard/static/cards/vulpix-mega-brave-067-063.jpg",
+            "notes": "2025 Japanese Mega Brave M1a #067/066 AR (Illustration Rare)",
+        },
+    ]
+
+    for card in extra_cards:
+        cursor.execute("""
+            SELECT id FROM master_set_catalog
+            WHERE card_name = ? AND set_name = ? AND card_number = ? AND language = ?;
+        """, (card["card_name"], card["set_name"], card["card_number"], card["language"]))
+        existing = cursor.fetchone()
+        if not existing:
+            cursor.execute("""
+                INSERT INTO master_set_catalog (
+                    card_name, set_name, card_number, release_year, language,
+                    edition, rarity, is_error, error_description,
+                    est_raw_price, est_grade10_price, image_url, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """, (
+                card["card_name"], card["set_name"], card["card_number"], card["release_year"], card["language"],
+                card["edition"], card["rarity"], card["is_error"], card["error_description"],
+                card["est_raw_price"], card["est_grade10_price"], card["image_url"], card["notes"]
+            ))
 
 
 # =============================================================
@@ -1344,55 +1599,14 @@ def update_master_card(card_id: int, updates: Dict[str, Any]) -> None:
 
 
 def check_master_card_owned(master_row: Any, df_col: pd.DataFrame) -> pd.DataFrame:
-    """Finds all copies in user's collection that match this master catalog card (regardless of grade CGC 9, PSA 10, Raw)."""
+    """Finds all copies in user's collection that match this master catalog card."""
     if df_col.empty:
         return df_col
 
-    # 1. Match by explicit master_card_id foreign key
-    m_id = master_row["id"]
-    matched = df_col[df_col["master_card_id"] == m_id]
-    if not matched.empty:
-        return matched
-
-    m_card = normalize_str(str(master_row["card_name"]))
-    m_set = normalize_str(str(master_row["set_name"]))
-    m_num = extract_base_number(str(master_row.get("card_number", "")))
-    m_ed = str(master_row.get("edition", "")).strip().lower()
-    m_is_1st = "1st" in m_ed or "first" in m_ed
-
-    candidates = []
-    for _, c_row in df_col.iterrows():
-        c_card = normalize_str(str(c_row["card_name"]))
-        c_set = normalize_str(str(c_row["set_name"]))
-        c_num = extract_base_number(str(c_row.get("card_number", "")))
-        c_ed = str(c_row.get("edition", "")).strip().lower()
-        c_is_1st = "1st" in c_ed or "first" in c_ed
-
-        # Check Set Name overlap
-        if m_set not in c_set and c_set not in m_set:
-            continue
-
-        # Check Card Number if both are present
-        if m_num and c_num and m_num != c_num:
-            continue
-
-        # Check Card Name special variants
-        if m_card != c_card:
-            if "blaine" in m_card and "blaine" not in c_card:
-                continue
-            if "brock" in m_card and "brock" not in c_card:
-                continue
-            if "light" in m_card and "light" not in c_card:
-                continue
-            if "alolan" in m_card and "alolan" not in c_card:
-                continue
-
-        # Check 1st Edition alignment
-        if m_is_1st != c_is_1st and ("1st" in m_ed or "1st" in c_ed):
-            continue
-
-        candidates.append(c_row)
-
+    candidates = [
+        c_row for _, c_row in df_col.iterrows()
+        if cards_match(c_row, master_row)
+    ]
     if candidates:
         return pd.DataFrame(candidates)
     return pd.DataFrame()
@@ -1403,47 +1617,19 @@ def load_master_catalog_df() -> pd.DataFrame:
     ensure_tables_exist()
     with get_db_connection() as conn:
         df_master = pd.read_sql_query("SELECT * FROM master_set_catalog ORDER BY release_year ASC, set_name ASC, card_number ASC", conn)
-        df_col = pd.read_sql_query("SELECT id, master_card_id, card_name, set_name, card_number, edition, grading_company, grade_label, grade FROM my_collection", conn)
+        df_col = pd.read_sql_query("SELECT id, master_card_id, card_name, set_name, card_number, edition, language, is_error, error_type, grading_company, grade_label, grade FROM my_collection", conn)
 
     if df_master.empty:
         return df_master
 
-    # Pre-index collection by master_card_id and normalized tuple for O(1) matching
-    by_master_id = {}
-    fallback_col = []
-    if not df_col.empty:
-        for _, r in df_col.iterrows():
-            mid = r["master_card_id"]
-            if mid and pd.notna(mid):
-                by_master_id.setdefault(int(mid), []).append(r)
-
-            c_card = normalize_str(str(r["card_name"]))
-            c_set = normalize_str(str(r["set_name"]))
-            c_num = extract_base_number(str(r["card_number"]))
-            c_ed = str(r["edition"]).lower()
-            c_is_1st = "1st" in c_ed or "first" in c_ed
-            fallback_col.append((c_set, c_num, c_card, c_is_1st, r))
+    col_records = [dict(r) for _, r in df_col.iterrows()] if not df_col.empty else []
 
     is_owned_list = []
     owned_copies_list = []
     owned_details_list = []
 
     for _, master_row in df_master.iterrows():
-        mid = master_row["id"]
-        matched = list(by_master_id.get(mid, []))
-
-        if not matched and fallback_col:
-            m_set = normalize_str(str(master_row["set_name"]))
-            m_num = extract_base_number(str(master_row["card_number"]))
-            m_card = normalize_str(str(master_row["card_name"]))
-            m_ed = str(master_row.get("edition", "")).lower()
-            m_is_1st = "1st" in m_ed or "first" in m_ed
-            for (c_set, c_num, c_card, c_is_1st, r) in fallback_col:
-                if m_set in c_set or c_set in m_set:
-                    if not (m_num and c_num and m_num != c_num):
-                        if m_card == c_card or not any(k in m_card for k in ["blaine", "brock", "light", "alolan", "pikachu"]):
-                            if m_is_1st == c_is_1st or ("1st" not in m_ed and "1st" not in str(r["edition"]).lower()):
-                                matched.append(r)
+        matched = [r for r in col_records if cards_match(r, master_row)]
 
         if matched:
             is_owned_list.append(True)
@@ -2236,23 +2422,34 @@ def load_collection_df() -> pd.DataFrame:
             k = (normalize_str(str(row["set_name"])), extract_base_number(str(row["card_number"])))
             m_info = master_by_key.get(k)
 
+        pc_benchmark = 0.0
         master_floor = 0.0
         m_g10 = 0.0
+        pc_g10 = 0.0
         p_g10 = 0
         p_p10 = 0
         if m_info is not None:
             m_raw = float(m_info.get("est_raw_price") or 0.0)
             m_g10 = float(m_info.get("est_grade10_price") or 0.0)
+            pc_raw = float(m_info.get("pricecharting_raw") or 0.0)
+            pc_g9 = float(m_info.get("pricecharting_grade9") or 0.0)
+            pc_g10 = float(m_info.get("pricecharting_grade10") or 0.0)
             p_g10 = int(m_info.get("pop_grade10") or 0)
             p_p10 = int(m_info.get("pop_pristine10") or 0)
 
+            if is_raw == 1 and pc_raw > 0:
+                pc_benchmark = pc_raw
+            elif grade_num >= 10.0 and pc_g10 > 0:
+                pc_benchmark = pc_g10
+            elif grade_num >= 9.0 and pc_g9 > 0:
+                pc_benchmark = pc_g9
+
             if is_raw == 1:
                 master_floor = m_raw
+            elif grade_num >= 10.0:
+                master_floor = m_g10
             else:
-                if grade_num >= 10.0:
-                    master_floor = m_g10
-                else:
-                    master_floor = m_raw * (2.0 if grade_num >= 9.0 else 1.2)
+                master_floor = m_raw * (2.0 if grade_num >= 9.0 else 1.2)
 
         # Fast match recent market sales
         matched_prices = []
@@ -2279,12 +2476,20 @@ def load_collection_df() -> pd.DataFrame:
                     if len(matched_prices) >= 5:
                         break
 
+        # Authentic valuation hierarchy:
+        # 1. Live market comps (from eBay market_sales)
+        # 2. PriceCharting benchmark (if available)
+        # 3. Authentic purchase cost (real user transaction price on eBay)
+        # 4. Master floor (if non-placeholder, i.e. != 45.0)
+        # 5. Baseline fallback $2.00
         if matched_prices:
             current_val = round(sum(matched_prices) / len(matched_prices), 2)
-        elif master_floor > 0:
-            current_val = max(master_floor, cost) if cost > 0 else master_floor
+        elif pc_benchmark > 0:
+            current_val = round(pc_benchmark, 2)
         elif cost > 0:
             current_val = cost
+        elif master_floor > 0 and master_floor != 45.0:
+            current_val = master_floor
         else:
             current_val = 2.00
 
@@ -2293,7 +2498,7 @@ def load_collection_df() -> pd.DataFrame:
 
         # Upgrade Intelligence
         is_candidate = 1 if (is_raw == 1 or grade_num < 10.0) else 0
-        target_g10_val = m_g10 if m_g10 > 0 else round(current_val * 2.5, 2)
+        target_g10_val = m_g10 if (m_g10 > 0 and m_g10 != 45.0) else (pc_g10 if pc_g10 > 0 else round(current_val * 2.5, 2))
         delta_val = max(0.0, round(target_g10_val - current_val, 2)) if is_candidate else 0.0
 
         est_values.append(current_val)
@@ -2324,14 +2529,12 @@ def add_card_to_collection(card: Dict[str, Any]) -> int:
 
         master_id = card.get("master_card_id")
         if not master_id:
-            cursor.execute("""
-                SELECT id FROM master_set_catalog
-                WHERE card_name = :card_name AND set_name = :set_name
-                LIMIT 1;
-            """, {"card_name": card.get("card_name"), "set_name": card.get("set_name")})
-            row = cursor.fetchone()
-            if row:
-                master_id = row["id"]
+            cursor.execute("SELECT * FROM master_set_catalog;")
+            master_rows = [dict(r) for r in cursor.fetchall()]
+            for m in master_rows:
+                if cards_match(card, m):
+                    master_id = m["id"]
+                    break
 
         cursor.execute("""
             INSERT INTO my_collection (
@@ -2964,10 +3167,10 @@ USER_19_REAL_VULPIX_CARDS: List[Dict[str, Any]] = [
         "cert_number": "",
         "purchase_price": 26.00,
         "purchase_date": "2026-06-22",
-        "edition": "Unlimited",
+        "edition": "Ninety-Nine",
         "language": "Korean",
         "is_raw": 0,
-        "image_url": "",
+        "image_url": "dashboard/static/cards/playing_cards_korean.jpg",
         "notes": "2020 Pokemon Playing Cards Korean Ninety-Nine 8 (Imported from eBay Order #14-14799-29403)",
     },
     {
@@ -2983,7 +3186,7 @@ USER_19_REAL_VULPIX_CARDS: List[Dict[str, Any]] = [
         "edition": "Promo",
         "language": "Japanese",
         "is_raw": 0,
-        "image_url": "",
+        "image_url": "https://images.pokemontcg.io/smp/293_hires.png",
         "notes": "2018 SM Promo Daiichi Pan #293 (Imported from eBay Order #13-14785-53656)",
     },
     {
@@ -3031,7 +3234,7 @@ USER_19_REAL_VULPIX_CARDS: List[Dict[str, Any]] = [
         "edition": "Poke Ball Reverse Holo",
         "language": "Japanese",
         "is_raw": 0,
-        "image_url": "dashboard/static/cards/vulpix_pok_mon_card_151_037_165.jpg",
+        "image_url": "dashboard/static/cards/vulpix-pokemon-card-151-037-165.jpg",
         "notes": "SV2a Japanese Poke Ball Reverse (Imported from eBay Order #02-14353-50680)",
     },
     {
@@ -3047,7 +3250,7 @@ USER_19_REAL_VULPIX_CARDS: List[Dict[str, Any]] = [
         "edition": "Art Rare (AR)",
         "language": "English",
         "is_raw": 0,
-        "image_url": "",
+        "image_url": "dashboard/static/cards/vulpix-mega-evolution-138-132.jpg",
         "notes": "2025 MEG EN Mega Evolution Illustration Rare #138 (Imported from eBay Order #12-14335-96624)",
     },
     {
@@ -3063,7 +3266,7 @@ USER_19_REAL_VULPIX_CARDS: List[Dict[str, Any]] = [
         "edition": "Master Ball Reverse Holo",
         "language": "Japanese",
         "is_raw": 0,
-        "image_url": "dashboard/static/cards/vulpix_pok_mon_card_151_037_165.jpg",
+        "image_url": "dashboard/static/cards/vulpix-pokemon-card-151-037-165.jpg",
         "notes": "Master Ball Reverse Holo Japanese 151 (Imported from eBay Order #25-14261-88583)",
     },
     {
@@ -3079,7 +3282,7 @@ USER_19_REAL_VULPIX_CARDS: List[Dict[str, Any]] = [
         "edition": "Unlimited",
         "language": "Japanese",
         "is_raw": 0,
-        "image_url": "",
+        "image_url": "dashboard/static/cards/playing_cards_japanese_4_diamonds.jpg",
         "notes": "2012 Pokemon Black 2 Playing Cards 4 of Diamonds (Imported from eBay Order #23-14255-50048)",
     },
     {
@@ -3108,10 +3311,10 @@ USER_19_REAL_VULPIX_CARDS: List[Dict[str, Any]] = [
         "cert_number": "",
         "purchase_price": 29.10,
         "purchase_date": "2026-02-22",
-        "edition": "Unlimited",
+        "edition": "Paper Safari",
         "language": "Korean",
         "is_raw": 0,
-        "image_url": "",
+        "image_url": "dashboard/static/cards/playing_cards_korean.jpg",
         "notes": "2022 Korean Paper Safari #5 (Imported from eBay Order #07-14278-12748)",
     },
     {
@@ -3207,7 +3410,7 @@ USER_19_REAL_VULPIX_CARDS: List[Dict[str, Any]] = [
         "edition": "Unlimited",
         "language": "Japanese",
         "is_raw": 0,
-        "image_url": "",
+        "image_url": "https://images.pokemontcg.io/swsh12/33_hires.png",
         "notes": "Imported from eBay Order #01-14240-06676",
     },
     {
@@ -3223,7 +3426,7 @@ USER_19_REAL_VULPIX_CARDS: List[Dict[str, Any]] = [
         "edition": "Art Rare (AR)",
         "language": "Japanese",
         "is_raw": 0,
-        "image_url": "",
+        "image_url": "dashboard/static/cards/vulpix-mega-brave-067-063.jpg",
         "notes": "2025 M1L Mega Brave Art Rare #067 (Imported from eBay Order #07-14225-79011)",
     },
     {
@@ -3239,7 +3442,7 @@ USER_19_REAL_VULPIX_CARDS: List[Dict[str, Any]] = [
         "edition": "Unlimited",
         "language": "Japanese",
         "is_raw": 0,
-        "image_url": "",
+        "image_url": "dashboard/static/cards/vulpix-crimson-haze-010-066.jpg",
         "notes": "Imported from eBay Order #23-14202-74516",
     },
 ]
