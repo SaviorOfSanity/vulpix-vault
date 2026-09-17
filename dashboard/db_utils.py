@@ -2449,15 +2449,29 @@ def sync_ebay_user_account(
     import xml.etree.ElementTree as ET
     import requests
 
-    token = user_token.strip()
+    token = (user_token or "").strip()
     if not token:
         return False, "eBay User Auth Token is required.", {}
 
+    is_oauth = token.startswith("v^1") or len(token) > 300
+
+    headers = {
+        "X-EBAY-API-COMPATIBILITY-LEVEL": "967",
+        "X-EBAY-API-CALL-NAME": "GetMyeBayBuying",
+        "X-EBAY-API-SITEID": "0",
+        "X-EBAY-API-APP-NAME": app_id.strip() if app_id else "VulpixVault-App",
+        "X-EBAY-API-DEV-NAME": dev_id.strip() if dev_id else "",
+        "X-EBAY-API-CERT-NAME": cert_id.strip() if cert_id else "",
+        "Content-Type": "text/xml",
+    }
+    if is_oauth:
+        headers["X-EBAY-API-IAF-TOKEN"] = token
+
+    cred_xml = f"<RequesterCredentials><eBayAuthToken>{token}</eBayAuthToken></RequesterCredentials>" if not is_oauth else ""
+
     xml_req = f"""<?xml version="1.0" encoding="utf-8"?>
 <GetMyeBayBuyingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <RequesterCredentials>
-    <eBayAuthToken>{token}</eBayAuthToken>
-  </RequesterCredentials>
+  {cred_xml}
   <WatchList>
     <Include>true</Include>
   </WatchList>
@@ -2469,16 +2483,6 @@ def sync_ebay_user_account(
     <DurationInDays>60</DurationInDays>
   </WonList>
 </GetMyeBayBuyingRequest>"""
-
-    headers = {
-        "X-EBAY-API-COMPATIBILITY-LEVEL": "967",
-        "X-EBAY-API-CALL-NAME": "GetMyeBayBuying",
-        "X-EBAY-API-SITEID": "0",
-        "X-EBAY-API-APP-NAME": app_id.strip() if app_id else "VulpixVault-App",
-        "X-EBAY-API-DEV-NAME": dev_id.strip() if dev_id else "",
-        "X-EBAY-API-CERT-NAME": cert_id.strip() if cert_id else "",
-        "Content-Type": "text/xml",
-    }
 
     try:
         resp = requests.post("https://api.ebay.com/ws/api.dll", data=xml_req, headers=headers, timeout=20.0)
