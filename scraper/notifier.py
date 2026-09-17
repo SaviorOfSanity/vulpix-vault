@@ -137,3 +137,40 @@ def send_sniper_urgent_alert(
     except Exception as e:
         print(f"[Notifier] Sniper Gotify error: {e}")
         return False
+
+
+def send_collection_sync_alert(
+    card: Dict[str, Any],
+    gotify_url: Optional[str] = None,
+    gotify_token: Optional[str] = None,
+) -> bool:
+    """Sends a notification when a new card purchase is auto-synced from eBay into the Vault."""
+    base_url = (gotify_url or os.getenv("GOTIFY_URL", "http://gotify:80")).rstrip("/")
+    token = gotify_token or os.getenv("GOTIFY_APP_TOKEN", "")
+    if not token or not token.strip():
+        return False
+
+    title = f"🎉 New eBay Purchase Synced to Vault!"
+    msg = (
+        f"**Card:** {card.get('card_name', 'Vulpix')} ({card.get('set_name', 'Unknown')})\n"
+        f"**Grade:** {card.get('grading_company', '')} {card.get('grade_label', '')}\n"
+        f"**Price Paid:** ${card.get('purchase_price', 0.0):.2f}\n"
+        f"**Date:** {card.get('purchase_date', '')}\n\n"
+        f"Automatically added to your Personal Vault via eBay Developer Sync."
+    )
+    payload = {
+        "title": title,
+        "message": msg,
+        "priority": 7,
+        "extras": {
+            "client::display": {"contentType": "text/markdown"}
+        }
+    }
+    headers = {"X-Gotify-Key": token, "Content-Type": "application/json"}
+    try:
+        r = requests.post(f"{base_url}/message", json=payload, headers=headers, timeout=10)
+        return r.status_code == 200
+    except Exception as e:
+        print(f"[Notifier] Collection sync alert error: {e}")
+        return False
+

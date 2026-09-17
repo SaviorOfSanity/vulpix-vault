@@ -16,6 +16,7 @@ from db_utils import (
     get_system_setting,
     load_collection_df,
     load_market_sales_df,
+    populate_real_user_collection,
     remove_collection_duplicates,
     run_system_benchmark,
     send_gotify_alert,
@@ -192,23 +193,32 @@ with st.form("ebay_api_settings_form"):
     st.markdown("### 🗄️ Database & Collection Maintenance")
     st.caption("Manage your local SQLite collection data, remove duplicate records, or reset sample data.")
 
-    m_col1, m_col2, m_col3 = st.columns(3)
-    with m_col1:
-        if st.button("🧹 Clean Duplicate Cards", help="Scans your collection and removes exact duplicate entries, keeping the earliest."):
+    m_row1_c1, m_row1_c2 = st.columns([1, 1])
+    with m_row1_c1:
+        if st.button("✨ Load / Reset My 19 Real Cards (Feb-Jun 2026)", type="primary", use_container_width=True, help="Wipes sample cards and populates your 19 authentic Vulpix purchases with exact grades and prices ($701.21)."):
+            cnt, val = populate_real_user_collection(clear_first=True)
+            st.cache_data.clear()
+            st.success(f"🎉 Successfully populated {cnt} authentic Vulpix cards (${val:.2f} total investment) into your Vault!")
+            st.rerun()
+
+    with m_row1_c2:
+        if st.button("🧹 Clean Duplicate Cards", use_container_width=True, help="Scans your collection and removes exact duplicate entries, keeping the earliest."):
             n = remove_collection_duplicates()
             st.success(f"Cleaned up {n} duplicate card records!")
             st.rerun()
 
-    with m_col2:
-        if st.button("🗑️ Remove Sample Template Cards", help="Removes the 29 pre-seeded starter cards (dated Aug 29, 2026) so only your real cards remain."):
+    m_row2_c1, m_row2_c2 = st.columns([1, 1])
+    with m_row2_c1:
+        if st.button("🗑️ Remove Sample Template Cards", use_container_width=True, help="Removes the 29 pre-seeded starter cards (dated Aug 29, 2026) so only your real cards remain."):
             n = clear_sample_collection_cards()
             st.success(f"Removed {n} sample template cards!")
             st.rerun()
 
-    with m_col3:
-        if st.button("⚠️ Wipe Entire Collection", help="Deletes all cards from my_collection so you can do a fresh import."):
+    with m_row2_c2:
+        if st.button("⚠️ Wipe Entire Collection", use_container_width=True, help="Deletes all cards from my_collection so you can do a fresh import."):
             n = clear_entire_collection()
             st.warning(f"Collection reset. Cleared {n} cards.")
             st.rerun()
+
 
 

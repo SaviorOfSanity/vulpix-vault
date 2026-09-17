@@ -8,7 +8,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 DEFAULT_DB_PATH = os.getenv("DB_PATH", os.path.join(os.path.dirname(__file__), "..", "data", "vulpix_vault.db"))
 
@@ -154,6 +154,15 @@ def init_db(db_path: Optional[str] = None) -> None:
                 status TEXT DEFAULT 'watching',
                 notes TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        # 5. System Settings
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS system_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
 
@@ -422,3 +431,34 @@ def insert_collection_card(card: Dict[str, Any], db_path: Optional[str] = None) 
             "notes": card.get("notes", ""),
         })
         return cursor.lastrowid or 0
+
+
+def get_system_setting(key: str, default: str = "", db_path: Optional[str] = None) -> str:
+    """Retrieve persistent setting value from database."""
+    init_db(db_path)
+    with get_db_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM system_settings WHERE key = ? LIMIT 1;", (key,))
+        row = cursor.fetchone()
+        if row and row["value"]:
+            return row["value"]
+    return default
+
+
+def get_existing_collection_identifiers(db_path: Optional[str] = None) -> Tuple[set, set]:
+    """Returns set of notes/order numbers and set of card keys (card_name, set_name, card_number)."""
+    init_db(db_path)
+    existing_notes = set()
+    existing_cards = set()
+    with get_db_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT card_name, set_name, card_number, notes FROM my_collection;")
+        for r in cursor.fetchall():
+            if r["notes"]:
+                existing_notes.add(str(r["notes"]))
+            c_name = str(r["card_name"] or "").strip().lower()
+            s_name = str(r["set_name"] or "").strip().lower()
+            num = str(r["card_number"] or "").strip().lower()
+            existing_cards.add((c_name, s_name, num))
+    return existing_notes, existing_cards
+

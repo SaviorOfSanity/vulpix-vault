@@ -1921,14 +1921,6 @@ def clear_sample_collection_cards() -> int:
         return conn.total_changes
 
 
-def clear_entire_collection() -> int:
-    """Clears all cards in my_collection to allow a completely clean re-import."""
-    with get_db_connection() as conn:
-        c = conn.cursor()
-        c.execute("DELETE FROM my_collection;")
-        conn.commit()
-        return conn.total_changes
-
 
 
 def parse_ebay_csv_history(csv_text_or_file: Any) -> List[Dict[str, Any]]:
@@ -2919,3 +2911,342 @@ def run_system_benchmark() -> Dict[str, Any]:
     results["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     return results
+
+
+# =============================================================
+# Genuine User Collection (19 Real Cards - Feb-Jun 2026 Purchases)
+# =============================================================
+
+USER_19_REAL_VULPIX_CARDS: List[Dict[str, Any]] = [
+    {
+        "card_name": "Blaine's Vulpix",
+        "set_name": "Gym Heroes",
+        "card_number": "65/132",
+        "grading_company": "CGC",
+        "grade": 9.0,
+        "grade_label": "Mint 9",
+        "cert_number": "",
+        "purchase_price": 30.10,
+        "purchase_date": "2026-06-22",
+        "edition": "1st Edition",
+        "language": "English",
+        "is_raw": 0,
+        "image_url": "dashboard/static/cards/blaine_s_vulpix_gym_heroes_65_132.jpg",
+        "notes": "Imported from eBay Order #23-14784-50321",
+    },
+    {
+        "card_name": "Alolan Vulpix",
+        "set_name": "Playing Cards",
+        "card_number": "8",
+        "grading_company": "CGC",
+        "grade": 10.0,
+        "grade_label": "Pristine 10",
+        "cert_number": "",
+        "purchase_price": 26.00,
+        "purchase_date": "2026-06-22",
+        "edition": "Unlimited",
+        "language": "Korean",
+        "is_raw": 0,
+        "image_url": "",
+        "notes": "2020 Pokemon Playing Cards Korean Ninety-Nine 8 (Imported from eBay Order #14-14799-29403)",
+    },
+    {
+        "card_name": "Alolan Vulpix",
+        "set_name": "Daiichi Pan Promo",
+        "card_number": "293/SM-P",
+        "grading_company": "PSA",
+        "grade": 9.0,
+        "grade_label": "Mint 9",
+        "cert_number": "",
+        "purchase_price": 51.91,
+        "purchase_date": "2026-06-18",
+        "edition": "Promo",
+        "language": "Japanese",
+        "is_raw": 0,
+        "image_url": "",
+        "notes": "2018 SM Promo Daiichi Pan #293 (Imported from eBay Order #13-14785-53656)",
+    },
+    {
+        "card_name": "Alolan Vulpix V",
+        "set_name": "Silver Tempest",
+        "card_number": "033/195",
+        "grading_company": "CGC",
+        "grade": 10.0,
+        "grade_label": "Gem Mint 10",
+        "cert_number": "",
+        "purchase_price": 37.53,
+        "purchase_date": "2026-06-18",
+        "edition": "Holo",
+        "language": "English",
+        "is_raw": 0,
+        "image_url": "dashboard/static/cards/alolan_vulpix_v_silver_tempest_033_195.jpg",
+        "notes": "Imported from eBay Order #24-14780-64563",
+    },
+    {
+        "card_name": "Vulpix",
+        "set_name": "Neo Destiny",
+        "card_number": "37/105",
+        "grading_company": "CGC",
+        "grade": 10.0,
+        "grade_label": "Gem Mint 10",
+        "cert_number": "",
+        "purchase_price": 19.21,
+        "purchase_date": "2026-03-11",
+        "edition": "Unlimited",
+        "language": "Japanese",
+        "is_raw": 0,
+        "image_url": "dashboard/static/cards/vulpix_neo_destiny_90_105.jpg",
+        "notes": "Japanese Neo 4: Darkness, and to Light... #37 CGC 9.5 (CGC 10 NOW) (Imported from eBay Order #01-14366-61278)",
+    },
+    {
+        "card_name": "Vulpix",
+        "set_name": "Pokémon Card 151",
+        "card_number": "037/165",
+        "grading_company": "CGC",
+        "grade": 10.0,
+        "grade_label": "Pristine 10",
+        "cert_number": "",
+        "purchase_price": 32.22,
+        "purchase_date": "2026-03-09",
+        "edition": "Poke Ball Reverse Holo",
+        "language": "Japanese",
+        "is_raw": 0,
+        "image_url": "dashboard/static/cards/vulpix_pok_mon_card_151_037_165.jpg",
+        "notes": "SV2a Japanese Poke Ball Reverse (Imported from eBay Order #02-14353-50680)",
+    },
+    {
+        "card_name": "Vulpix",
+        "set_name": "Mega Evolution",
+        "card_number": "138",
+        "grading_company": "PSA",
+        "grade": 10.0,
+        "grade_label": "Gem Mint 10",
+        "cert_number": "",
+        "purchase_price": 63.60,
+        "purchase_date": "2026-03-08",
+        "edition": "Art Rare (AR)",
+        "language": "English",
+        "is_raw": 0,
+        "image_url": "",
+        "notes": "2025 MEG EN Mega Evolution Illustration Rare #138 (Imported from eBay Order #12-14335-96624)",
+    },
+    {
+        "card_name": "Vulpix",
+        "set_name": "Pokémon Card 151",
+        "card_number": "037/165",
+        "grading_company": "CGC",
+        "grade": 10.0,
+        "grade_label": "Pristine 10",
+        "cert_number": "",
+        "purchase_price": 58.09,
+        "purchase_date": "2026-02-24",
+        "edition": "Master Ball Reverse Holo",
+        "language": "Japanese",
+        "is_raw": 0,
+        "image_url": "dashboard/static/cards/vulpix_pok_mon_card_151_037_165.jpg",
+        "notes": "Master Ball Reverse Holo Japanese 151 (Imported from eBay Order #25-14261-88583)",
+    },
+    {
+        "card_name": "Vulpix",
+        "set_name": "Playing Cards",
+        "card_number": "4 of Diamonds",
+        "grading_company": "PSA",
+        "grade": 10.0,
+        "grade_label": "Gem Mint 10",
+        "cert_number": "",
+        "purchase_price": 45.97,
+        "purchase_date": "2026-02-22",
+        "edition": "Unlimited",
+        "language": "Japanese",
+        "is_raw": 0,
+        "image_url": "",
+        "notes": "2012 Pokemon Black 2 Playing Cards 4 of Diamonds (Imported from eBay Order #23-14255-50048)",
+    },
+    {
+        "card_name": "Vulpix",
+        "set_name": "Base Set",
+        "card_number": "68/102",
+        "grading_company": "CGC",
+        "grade": 10.0,
+        "grade_label": "Gem Mint 10",
+        "cert_number": "",
+        "purchase_price": 74.15,
+        "purchase_date": "2026-02-22",
+        "edition": "1st Edition",
+        "language": "Chinese",
+        "is_raw": 0,
+        "image_url": "dashboard/static/cards/vulpix_base_set_68_102.jpg",
+        "notes": "2000 Chinese Base Set Common (Imported from eBay Order #11-14272-40918)",
+    },
+    {
+        "card_name": "Vulpix",
+        "set_name": "Playing Cards",
+        "card_number": "5",
+        "grading_company": "CGC",
+        "grade": 10.0,
+        "grade_label": "Pristine 10",
+        "cert_number": "",
+        "purchase_price": 29.10,
+        "purchase_date": "2026-02-22",
+        "edition": "Unlimited",
+        "language": "Korean",
+        "is_raw": 0,
+        "image_url": "",
+        "notes": "2022 Korean Paper Safari #5 (Imported from eBay Order #07-14278-12748)",
+    },
+    {
+        "card_name": "Vulpix",
+        "set_name": "EX Power Keepers",
+        "card_number": "69/108",
+        "grading_company": "CGC",
+        "grade": 10.0,
+        "grade_label": "Gem Mint 10",
+        "cert_number": "",
+        "purchase_price": 32.22,
+        "purchase_date": "2026-02-21",
+        "edition": "Unlimited",
+        "language": "English",
+        "is_raw": 0,
+        "image_url": "dashboard/static/cards/vulpix_ex_power_keepers_69_108.jpg",
+        "notes": "Imported from eBay Order #09-14271-05172",
+    },
+    {
+        "card_name": "Blaine's Vulpix",
+        "set_name": "Gym Challenge",
+        "card_number": "66/132",
+        "grading_company": "RAW",
+        "grade": 0.0,
+        "grade_label": "Raw Single",
+        "cert_number": "",
+        "purchase_price": 13.84,
+        "purchase_date": "2026-02-19",
+        "edition": "Unlimited",
+        "language": "English",
+        "is_raw": 1,
+        "image_url": "dashboard/static/cards/blaine_s_vulpix_gym_challenge_66_132.jpg",
+        "notes": "Imported from eBay Order #08-14264-22020",
+    },
+    {
+        "card_name": "Alolan Vulpix VSTAR",
+        "set_name": "Silver Tempest",
+        "card_number": "034/195",
+        "grading_company": "CGC",
+        "grade": 10.0,
+        "grade_label": "Pristine 10",
+        "cert_number": "",
+        "purchase_price": 26.50,
+        "purchase_date": "2026-02-18",
+        "edition": "Holo",
+        "language": "English",
+        "is_raw": 0,
+        "image_url": "dashboard/static/cards/alolan_vulpix_vstar_silver_tempest_034_195.jpg",
+        "notes": "Imported from eBay Order #23-14235-12623",
+    },
+    {
+        "card_name": "Alolan Vulpix V (Full Art)",
+        "set_name": "Silver Tempest",
+        "card_number": "173/195",
+        "grading_company": "CGC",
+        "grade": 10.0,
+        "grade_label": "Pristine 10",
+        "cert_number": "",
+        "purchase_price": 32.85,
+        "purchase_date": "2026-02-16",
+        "edition": "Full Art",
+        "language": "English",
+        "is_raw": 0,
+        "image_url": "dashboard/static/cards/alolan_vulpix_v__full_art__silver_tempest_173_195.jpg",
+        "notes": "Imported from eBay Order #01-14261-07207",
+    },
+    {
+        "card_name": "Alolan Vulpix (Shiny)",
+        "set_name": "Hidden Fates",
+        "card_number": "SV8/SV94",
+        "grading_company": "PSA",
+        "grade": 10.0,
+        "grade_label": "Gem Mint 10",
+        "cert_number": "",
+        "purchase_price": 45.05,
+        "purchase_date": "2026-02-14",
+        "edition": "Shiny Vault / Baby Shiny",
+        "language": "English",
+        "is_raw": 0,
+        "image_url": "dashboard/static/cards/alolan_vulpix__shiny__hidden_fates_sv8_sv94.jpg",
+        "notes": "Imported from eBay Order #16-14228-18572",
+    },
+    {
+        "card_name": "Alolan Vulpix",
+        "set_name": "Incandescent Arcana",
+        "card_number": "023/068",
+        "grading_company": "CGC",
+        "grade": 10.0,
+        "grade_label": "Pristine 10",
+        "cert_number": "",
+        "purchase_price": 26.92,
+        "purchase_date": "2026-02-11",
+        "edition": "Unlimited",
+        "language": "Japanese",
+        "is_raw": 0,
+        "image_url": "",
+        "notes": "Imported from eBay Order #01-14240-06676",
+    },
+    {
+        "card_name": "Vulpix",
+        "set_name": "Mega Brave",
+        "card_number": "067/066",
+        "grading_company": "CGC",
+        "grade": 10.0,
+        "grade_label": "Pristine 10",
+        "cert_number": "",
+        "purchase_price": 30.76,
+        "purchase_date": "2026-02-10",
+        "edition": "Art Rare (AR)",
+        "language": "Japanese",
+        "is_raw": 0,
+        "image_url": "",
+        "notes": "2025 M1L Mega Brave Art Rare #067 (Imported from eBay Order #07-14225-79011)",
+    },
+    {
+        "card_name": "Vulpix",
+        "set_name": "Crimson Haze",
+        "card_number": "010/066",
+        "grading_company": "CGC",
+        "grade": 10.0,
+        "grade_label": "Pristine 10",
+        "cert_number": "",
+        "purchase_price": 25.19,
+        "purchase_date": "2026-02-10",
+        "edition": "Unlimited",
+        "language": "Japanese",
+        "is_raw": 0,
+        "image_url": "",
+        "notes": "Imported from eBay Order #23-14202-74516",
+    },
+]
+
+
+def populate_real_user_collection(clear_first: bool = True) -> Tuple[int, float]:
+    """
+    Populates the user's authentic 19-card Vulpix collection purchased between Feb 10, 2026
+    and Jun 22, 2026, totaling $701.21.
+    If clear_first is True, removes existing/sample cards from my_collection first.
+    Returns (count, total_investment).
+    """
+    ensure_tables_exist()
+    if clear_first:
+        clear_entire_collection()
+
+    count = 0
+    total_val = 0.0
+    for card in USER_19_REAL_VULPIX_CARDS:
+        card_copy = dict(card)
+        if not card_copy.get("image_url"):
+            meta = resolve_card_metadata(card_copy["set_name"], card_copy["card_number"], card_copy["card_name"])
+            card_copy["image_url"] = meta.get("image_url") or DEFAULT_CARD_BACK_IMAGE
+
+        add_card_to_collection(card_copy)
+        count += 1
+        total_val += card_copy["purchase_price"]
+
+    return count, round(total_val, 2)
+

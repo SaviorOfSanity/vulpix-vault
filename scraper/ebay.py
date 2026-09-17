@@ -5,6 +5,8 @@ Supports Raw singles, Grade 10 slabs, special grades, and auction detail parsing
 
 import re
 import urllib.parse
+import xml.etree.ElementTree as ET
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 import requests
 from bs4 import BeautifulSoup
@@ -298,3 +300,254 @@ def scrape_ebay_listings(query: str = "Vulpix Pokemon card (graded, PSA 10, raw,
         print(f"[Scraper] Error during eBay scrape: {e}")
 
     return results
+
+
+KNOWN_VULPIX_SETS = [
+    ("Gym Heroes", ["gym heroes"]),
+    ("Gym Challenge", ["gym challenge"]),
+    ("Base Set", ["base set", "base 1", "shadowless"]),
+    ("Neo Destiny", ["neo destiny", "darkness, and to light"]),
+    ("Silver Tempest", ["silver tempest"]),
+    ("Pokémon Card 151", ["151", "pokemon 151", "sv2a"]),
+    ("Mega Evolution", ["mega evolution", "meg en"]),
+    ("Hidden Fates", ["hidden fates"]),
+    ("Incandescent Arcana", ["incandescent arcana", "s11a"]),
+    ("Mega Brave", ["mega brave", "m1l"]),
+    ("Crimson Haze", ["crimson haze", "sv5a"]),
+    ("EX Power Keepers", ["power keepers", "ex power keepers"]),
+    ("Daiichi Pan Promo", ["daiichi", "daiichi pan"]),
+    ("Playing Cards", ["playing cards", "ninety-nine", "paper safari", "black 2"]),
+    ("Aquapolis", ["aquapolis"]),
+    ("Expedition", ["expedition"]),
+    ("Team Rocket", ["team rocket"]),
+    ("Fates Collide", ["fates collide"]),
+    ("Prismatic Evolutions", ["prismatic evolutions"]),
+]
+
+
+def detect_set_name(title: str) -> str:
+    """Detects Pokémon card set name from listing title."""
+    t_low = title.lower()
+    for s_name, kws in KNOWN_VULPIX_SETS:
+        if any(kw in t_low for kw in kws):
+            return s_name
+    return "Unknown Set"
+
+
+def extract_card_number_from_title(title: str) -> str:
+    """Extracts card number (e.g. 68/102, 037/165, #138, 4 of Diamonds) from title."""
+    m = re.search(r"#?([0-9]{1,3}/[0-9]{1,3})", title)
+    if m:
+        return m.group(1)
+    m_poker = re.search(r"\b([0-9]{1,2}|Jack|Queen|King|Ace)\s+of\s+(Diamonds|Hearts|Spades|Clubs)\b", title, re.IGNORECASE)
+    if m_poker:
+        return m_poker.group(0)
+    m_single = re.search(r"#([0-9]{1,3}[a-zA-Z]?)\b", title)
+    if m_single:
+        return m_single.group(1)
+    return ""
+
+
+def sync_ebay_user_account_trading_api(
+    user_token: str,
+    app_id: str = "",
+    dev_id: str = "",
+    cert_id: str = "",
+    db_path: Optional[str] = None,
+) -> Tuple[bool, str, Dict[str, Any], List[Dict[str, Any]]]:
+    """
+    Automated eBay Trading API Sync:
+    Calls GetMyeBayBuying to pull WonList (past purchases), WatchList, and BidList.
+    Any new Vulpix won cards are automatically parsed and added to my_collection.
+    Returns (success, message, stats_dict, list_of_new_cards).
+    """
+    from db import add_card_to_collection, add_to_sniper_watchlist, get_existing_collection_identifiers
+
+    token = (user_token or "").strip()
+    if not token:
+        return False, "eBay Auth Token is empty. Please enter your User Token.", {}, []
+
+    headers = {
+        "X-EBAY-API-COMPATIBILITY-LEVEL": "967",
+        "X-EBAY-API-CALL-NAME": "GetMyeBayBuying",
+        "X-EBAY-API-SITEID": "0",
+        "Content-Type": "text/xml",
+    }
+    if dev_id and app_id and cert_id:
+        headers["X-EBAY-API-DEV-NAME"] = dev_id
+        headers["X-EBAY-API-APP-NAME"] = app_id
+        headers["X-EBAY-API-CERT-NAME"] = cert_id
+
+    is_oauth = bool(token.startswith("v^1.1#") or len(token) > 500)
+    if is_oauth:
+        headers["X-EBAY-API-IAF-TOKEN"] = token
+
+    cred_xml = f"<RequesterCredentials><eBayAuthToken>{token}</eBayAuthToken></RequesterCredentials>" if not is_oauth else ""
+
+    xml_req = f"""<?xml version="1.0" encoding="utf-8"?>
+<GetMyeBayBuyingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  {cred_xml}
+  <WatchList>
+    <Include>true</Include>
+  </WatchList>
+  <BidList>
+    <Include>true</Include>
+  </BidList>
+  <WonList>
+    <Include>true</Include>
+    <DurationInDays>60</DurationInDays>
+  </WonList>
+</GetMyeBayBuyingRequest>"""
+
+    try:
+        resp = requests.post("https://api.ebay.com/ws/api.dll", data=xml_req, headers=headers, timeout=25.0)
+        if resp.status_code != 200:
+            return False, f"eBay API HTTP {resp.status_code}: {resp.text[:200]}", {}, []
+
+        root = ET.fromstring(resp.content)
+        ns = {"ebay": "urn:ebay:apis:eBLBaseComponents"}
+        ack = root.findtext("ebay:Ack", "", ns)
+
+        if ack not in ["Success", "Warning"]:
+            err_msg = root.findtext(".//ebay:LongMessage", "", ns) or root.findtext(".//ebay:ShortMessage", "Unknown eBay API error", ns)
+            return False, f"eBay API Error: {err_msg}", {}, []
+
+        # 1. Process WatchList -> Sniper Watchlist
+        watch_count = 0
+        for item in root.findall(".//ebay:WatchList//ebay:Item", ns):
+            item_id = item.findtext("ebay:ItemID", "", ns)
+            title = item.findtext("ebay:Title", "", ns)
+            price = float(item.findtext(".//ebay:CurrentPrice", "0.0", ns) or 0.0)
+            end_time = item.findtext(".//ebay:EndTime", "", ns)
+            url = item.findtext(".//ebay:ViewItemURL", f"https://www.ebay.com/itm/{item_id}", ns)
+            img_url = item.findtext(".//ebay:GalleryURL", "", ns) or ""
+
+            if item_id and title:
+                t_lower = title.lower()
+                is_vulpix = any(kw in t_lower for kw in ["vulpix", "rokon", "alolan vulpix"]) or ("pikachu" in t_lower and "poncho" in t_lower and "vulpix" in t_lower)
+                if not is_vulpix:
+                    continue
+
+                add_to_sniper_watchlist({
+                    "listing_id": item_id,
+                    "card_name": "Vulpix",
+                    "title": title,
+                    "listing_url": url,
+                    "image_url": img_url,
+                    "auction_end_time": end_time[:19].replace("T", " ") if end_time else "",
+                    "current_bid": price,
+                    "shipping_cost": 0.0,
+                    "target_bid_mode": "amazing_deal",
+                    "custom_max_bid": None,
+                    "max_calculated_bid": round(price * 1.1, 2),
+                    "status": "watching",
+                    "notes": "Auto-imported from personal eBay Watchlist.",
+                }, db_path=db_path)
+                watch_count += 1
+
+        # Check existing collection to detect duplicates
+        existing_notes, existing_cards = get_existing_collection_identifiers(db_path=db_path)
+
+        # 2. Process WonList -> Vault Collection
+        won_items = root.findall(".//ebay:WonList//ebay:Item", ns)
+        total_won = len(won_items)
+        won_added = 0
+        skipped_dup = 0
+        skipped_non_vulpix = 0
+        newly_added_cards: List[Dict[str, Any]] = []
+
+        for item in won_items:
+            item_id = item.findtext("ebay:ItemID", "", ns)
+            title = item.findtext("ebay:Title", "", ns) or ""
+            price = float(item.findtext(".//ebay:CurrentPrice", "0.0", ns) or 0.0)
+            end_time = item.findtext(".//ebay:EndTime", "", ns)
+            end_date = end_time[:10] if end_time else datetime.today().strftime("%Y-%m-%d")
+            img_url = item.findtext(".//ebay:GalleryURL", "", ns) or ""
+
+            t_lower = title.lower()
+            is_vulpix = any(kw in t_lower for kw in ["vulpix", "rokon", "alolan vulpix"]) or ("pikachu" in t_lower and "poncho" in t_lower and "vulpix" in t_lower)
+            if not is_vulpix:
+                skipped_non_vulpix += 1
+                continue
+
+            # Duplicate check by ItemID
+            is_dup = False
+            if item_id:
+                for note_str in existing_notes:
+                    if item_id in note_str:
+                        is_dup = True
+                        break
+
+            if is_dup:
+                skipped_dup += 1
+                continue
+
+            cond, grader, grade_val, grade_lbl = extract_special_grading_details(title)
+            meta = extract_card_metadata(title)
+            set_name = detect_set_name(title)
+            card_num = extract_card_number_from_title(title)
+
+            c_key = (meta["card_name"].strip().lower(), set_name.strip().lower(), card_num.strip().lower())
+            if c_key in existing_cards:
+                skipped_dup += 1
+                continue
+
+            new_card = {
+                "card_name": meta["card_name"],
+                "set_name": set_name,
+                "card_number": card_num,
+                "grading_company": grader,
+                "grade": grade_val or 0.0,
+                "grade_label": grade_lbl,
+                "cert_number": "",
+                "purchase_price": price,
+                "purchase_date": end_date,
+                "edition": meta["edition"],
+                "language": meta["language"],
+                "is_error": meta["is_error"],
+                "error_type": meta.get("error_type", ""),
+                "is_raw": 1 if cond == "Raw" else 0,
+                "image_url": img_url,
+                "notes": f"Imported from eBay Order #{item_id}" if item_id else "Imported via eBay Account Sync",
+            }
+
+            add_card_to_collection(new_card, db_path=db_path)
+            newly_added_cards.append(new_card)
+            existing_cards.add(c_key)
+            if item_id:
+                existing_notes.add(item_id)
+            won_added += 1
+
+        # 3. Active Bids Count
+        bid_items = root.findall(".//ebay:BidList//ebay:Item", ns)
+        bid_count = len(bid_items)
+
+        parts = []
+        if won_added > 0:
+            parts.append(f"🎉 Added {won_added} new Vulpix card(s) to Vault")
+        elif skipped_dup > 0:
+            parts.append(f"All {skipped_dup} Vulpix card(s) in past 60-day purchases are already in your Vault")
+        elif total_won > 0:
+            parts.append(f"Found {total_won} eBay purchase(s), but 0 Vulpix cards ({skipped_non_vulpix} non-Vulpix items excluded)")
+        else:
+            parts.append("0 purchases found in past 60 days")
+
+        if watch_count > 0:
+            parts.append(f"{watch_count} watchlist item(s) tracked")
+        if bid_count > 0:
+            parts.append(f"{bid_count} active bid(s) tracked")
+
+        summary_msg = "Synced with eBay! " + " • ".join(parts) + "."
+        stats = {
+            "watch_count": watch_count,
+            "won_added": won_added,
+            "skipped_dup": skipped_dup,
+            "skipped_non_vulpix": skipped_non_vulpix,
+            "bid_count": bid_count,
+            "total_won": total_won,
+        }
+        return True, summary_msg, stats, newly_added_cards
+
+    except Exception as e:
+        return False, f"Connection or parsing error: {e}", {}, []
+

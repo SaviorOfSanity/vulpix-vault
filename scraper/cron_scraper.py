@@ -15,13 +15,14 @@ load_dotenv()
 
 from db import (
     get_recent_comparables,
+    get_system_setting,
     init_db,
     insert_market_sale,
     is_listing_recorded,
 )
-from ebay import scrape_ebay_listings
+from ebay import scrape_ebay_listings, sync_ebay_user_account_trading_api
 from appraiser import appraise_listing
-from notifier import send_gotify_alert
+from notifier import send_collection_sync_alert, send_gotify_alert
 from seed_data import seed_database_if_empty
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -110,6 +111,42 @@ def run_scrape_and_appraisal_cycle() -> None:
     )
 
 
+def run_scheduled_ebay_user_sync() -> None:
+    """
+    Scheduled background task that connects to eBay Trading API using the user's
+    configured Developer Token to automatically sync new purchases into the Vault
+    and track personal Watchlist items.
+    """
+    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking eBay Developer Account for new purchases & watchlist...")
+
+    token = get_system_setting("EBAY_USER_TOKEN") or os.getenv("EBAY_USER_TOKEN", "")
+    app_id = get_system_setting("EBAY_APP_ID") or os.getenv("EBAY_APP_ID", "")
+    dev_id = get_system_setting("EBAY_DEV_ID") or os.getenv("EBAY_DEV_ID", "")
+    cert_id = get_system_setting("EBAY_CERT_ID") or os.getenv("EBAY_CERT_ID", "")
+
+    if not token or not token.strip():
+        print("[eBay Sync] No eBay User Auth Token found in system settings or environment. Skipping sync.")
+        return
+
+    try:
+        ok, msg, stats, new_cards = sync_ebay_user_account_trading_api(
+            user_token=token.strip(),
+            app_id=app_id.strip(),
+            dev_id=dev_id.strip(),
+            cert_id=cert_id.strip(),
+        )
+        if ok:
+            print(f"[eBay Sync] Success: {msg}")
+            if new_cards:
+                print(f"[eBay Sync] 🎉 Discovered {len(new_cards)} NEW card purchase(s) on eBay! Adding to Vault and sending alerts...")
+                for c in new_cards:
+                    send_collection_sync_alert(c)
+        else:
+            print(f"[eBay Sync] Notice: {msg}")
+    except Exception as e:
+        print(f"[eBay Sync] Error running scheduled eBay sync: {e}")
+
+
 def main() -> None:
     print("=" * 60)
     print("  The Vulpix Vault - Background Scraper & AI Appraiser")
@@ -127,12 +164,28 @@ def main() -> None:
 
     print(f"[Scheduler] Configured scrape interval: {interval_hours} hours.")
 
+    sync_interval_hours_str = os.getenv("EBAY_SYNC_INTERVAL_HOURS", "24")
+    try:
+        sync_interval_hours = float(sync_interval_hours_str)
+    except ValueError:
+        sync_interval_hours = 24.0
+
+    print(f"[Scheduler] Configured eBay account sync interval: {sync_interval_hours} hours.")
+
     scheduler = BlockingScheduler()
     scheduler.add_job(
         run_scrape_and_appraisal_cycle,
         "interval",
         hours=interval_hours,
         id="vulpix_scraper_job",
+        next_run_time=datetime.now(),
+    )
+
+    scheduler.add_job(
+        run_scheduled_ebay_user_sync,
+        "interval",
+        hours=sync_interval_hours,
+        id="ebay_user_sync_job",
         next_run_time=datetime.now(),
     )
 
@@ -153,3 +206,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -15,13 +15,9 @@ from db_utils import (
     LANGUAGE_OPTIONS,
     add_card_to_collection,
     auto_enrich_master_catalog,
-    bulk_import_collection_from_df,
-    bulk_import_ebay_history,
     delete_card_from_collection,
-    extract_text_from_screenshot,
     generate_ebay_search_url,
     get_card_image_data_uri,
-    get_csv_template_bytes,
     get_master_set_metrics,
     get_portfolio_metrics,
     get_pricecharting_search_url,
@@ -29,9 +25,8 @@ from db_utils import (
     get_system_setting,
     load_collection_df,
     load_master_catalog_df,
-    parse_ebay_csv_history,
     parse_ebay_link_to_card,
-    parse_ebay_purchase_history_text,
+    populate_real_user_collection,
     sync_ebay_user_account,
     update_collection_card,
 )
@@ -98,12 +93,9 @@ st.markdown("<br>", unsafe_allow_html=True)
 # -------------------------------------------------------------
 # Card Importers (5 Multi-Format Options)
 # -------------------------------------------------------------
-imp_t1, imp_t2, imp_t3, imp_t4, imp_t5 = st.tabs([
+imp_t1, imp_t2 = st.tabs([
     "➕ Manual Add",
-    "🔗 eBay Link",
-    "📸 Screenshot OCR",
-    "📦 eBay Order Text",
-    "📥 CSV Import",
+    "⚡ 1-Click eBay Sync & Link",
 ])
 
 # Tab 1: Manual Add Form
@@ -184,6 +176,14 @@ with imp_t1:
 
 # Tab 2: 1-Click eBay Link Import & Account Sync
 with imp_t2:
+    with st.expander("✨ Seed / Reset My 19 Real Cards (Feb-Jun 2026 Purchases)", expanded=False):
+        st.markdown("Instantly populate your 19 authentic Vulpix purchases (\$701.21 total investment) with exact grades, prices, and dates:")
+        if st.button("🚀 Load My 19 Real Cards into Vault", key="btn_seed_19_vault", type="primary"):
+            cnt_s, val_s = populate_real_user_collection(clear_first=True)
+            st.cache_data.clear()
+            st.session_state["vault_flash_msg"] = f"🎉 Successfully loaded your {cnt_s} authentic cards (${val_s:.2f}) into your Vault!"
+            st.rerun()
+
     with st.expander("⚡ 1-Click Auto-Sync Won Purchases from eBay API", expanded=False):
         st.markdown("Connect to your eBay account to automatically import all recently won auctions into your Vault:")
         if st.button("🚀 Sync Won Auctions Now", key="btn_sync_ebay_won_vault", type="primary"):
@@ -248,94 +248,8 @@ with imp_t2:
                     st.success(f"Added {el_name} from eBay Link to your Vault!")
                     st.rerun()
 
-# Tab 3: Screenshot OCR Import (On-Demand & Cached to prevent CPU hangs)
-with imp_t3:
-    st.markdown("Upload or drop a screenshot of your eBay purchase history or order details:")
-    uploaded_screenshot = st.file_uploader("Upload Screenshot", type=["png", "jpg", "jpeg", "webp"], key="screenshot_uploader")
-    if uploaded_screenshot is not None:
-        ocr_c1, ocr_c2 = st.columns([1, 2])
-        with ocr_c1:
-            st.image(uploaded_screenshot, caption="Screenshot Preview", width=220)
-        with ocr_c2:
-            st.info("Click the button below to extract text using local OCR.")
-            if st.button("🔍 Extract Text & Cards with OCR", key="btn_run_ocr", type="primary"):
-                with st.spinner("Extracting text via optimized OCR..."):
-                    st.session_state["vault_ocr_text"] = extract_text_from_screenshot(uploaded_screenshot)
-
-    if st.session_state.get("vault_ocr_text"):
-        parsed_ocr_items = parse_ebay_purchase_history_text(st.session_state["vault_ocr_text"])
-        if parsed_ocr_items:
-            st.success(f"Extracted {len(parsed_ocr_items)} card(s) from screenshot!")
-            df_ocr_preview = pd.DataFrame(parsed_ocr_items)[["card_name", "set_name", "card_number", "grading_company", "grade_label", "purchase_price", "purchase_date", "language"]]
-            st.dataframe(df_ocr_preview, use_container_width=True)
-            if st.button("🚀 Confirm Import All from Screenshot into Vault", key="btn_confirm_ocr_import"):
-                cnt_ocr, msg_ocr = bulk_import_ebay_history(parsed_ocr_items)
-                del st.session_state["vault_ocr_text"]
-                st.success(msg_ocr)
-                st.rerun()
-        else:
-            st.warning("Extracted text, but no Pokémon card order rows were matched. Raw text:")
-            st.code(st.session_state["vault_ocr_text"])
-
-# Tab 4: eBay Purchase History Raw Text
-with imp_t4:
-    st.markdown("📋 **Bulk Import 2026 Purchases from eBay Webpage or Emails:**")
-    st.caption("Since eBay's API restricts automated sync to the past 60 days, you can easily import your entire 2026 purchase history here in seconds! Go to [eBay Purchase History](https://www.ebay.com/mye/myebay/purchase), filter by **2026**, highlight your purchases (`Ctrl + A` or drag), copy (`Ctrl + C`), and paste below:")
-    ebay_paste_text = st.text_area(
-        "Paste eBay Order History Text",
-        placeholder="e.g.\nDelivered on Thu, Feb 19, 2026\n2019 POKEMON SUN & MOON ALOLAN VULPIX - HOLO GEM MT HIDDEN FATES PSA 10 SV8/SV94\nPaid US $45.05\nOrder number: 16-14228-18572\n\nDelivered on Tue, Mar 10, 2026\nPokemon Card 151 Vulpix 037/165 Japanese CGC Pristine 10\nUS $58.50\nOrder # 08-77123-99412",
-        height=140,
-        key="vault_ebay_paste_input",
-    )
-    if ebay_paste_text:
-        parsed_ebay_items = parse_ebay_purchase_history_text(ebay_paste_text)
-        if parsed_ebay_items:
-            st.success(f"🎉 Detected {len(parsed_ebay_items)} Vulpix Card(s) in Pasted Text:")
-            df_preview_ebay = pd.DataFrame(parsed_ebay_items)[["card_name", "set_name", "card_number", "grading_company", "grade_label", "purchase_price", "purchase_date", "language"]]
-            st.dataframe(df_preview_ebay, use_container_width=True)
-            if st.button("🚀 Confirm Add All eBay Cards to Vault", key="btn_confirm_ebay_text_import", type="primary"):
-                cnt_eb, msg_eb = bulk_import_ebay_history(parsed_ebay_items)
-                st.session_state["vault_flash_msg"] = msg_eb
-                st.rerun()
-        else:
-            st.warning("Could not detect any Vulpix cards in the pasted text. Make sure card titles and prices are included.")
-
-# Tab 5: CSV Import (Template or eBay Report)
-with imp_t5:
-    st.markdown("📁 **Import from CSV File (Supports Starter Template or Official eBay Report):**")
-    st.caption("Upload your eBay Purchase History CSV report (downloaded from eBay) or our custom CSV template:")
-    st.download_button(
-        "📥 Download Starter CSV Template",
-        data=get_csv_template_bytes(),
-        file_name="vulpix_collection_starter_template.csv",
-        mime="text/csv",
-    )
-    col_csv_file = st.file_uploader("Upload Collection or eBay CSV", type=["csv"], key="vault_csv_uploader")
-    if col_csv_file is not None:
-        try:
-            content_bytes = col_csv_file.getvalue()
-            parsed_ebay_csv = parse_ebay_csv_history(content_bytes)
-            if parsed_ebay_csv:
-                st.success(f"🎉 Detected {len(parsed_ebay_csv)} Vulpix Card(s) in eBay Report CSV!")
-                df_csv_prev = pd.DataFrame(parsed_ebay_csv)[["card_name", "set_name", "card_number", "grading_company", "grade_label", "purchase_price", "purchase_date", "language"]]
-                st.dataframe(df_csv_prev, use_container_width=True)
-                if st.button("🚀 Confirm Import All Cards from eBay CSV to Vault", key="btn_confirm_ebay_csv_imp", type="primary"):
-                    cnt_c, msg_c = bulk_import_ebay_history(parsed_ebay_csv)
-                    st.session_state["vault_flash_msg"] = msg_c
-                    st.rerun()
-            else:
-                import io
-                df_up_col = pd.read_csv(io.BytesIO(content_bytes))
-                st.dataframe(df_up_col.head(5), use_container_width=True)
-                if st.button("🚀 Confirm Bulk Import into Vault", key="btn_confirm_std_csv_imp", type="primary"):
-                    count_imp, msg_imp = bulk_import_collection_from_df(df_up_col)
-                    st.session_state["vault_flash_msg"] = msg_imp
-                    st.rerun()
-        except Exception as e:
-            st.error(f"Error reading CSV: {e}")
-
-
 st.markdown("---")
+
 
 # -------------------------------------------------------------
 # Active Inline Edit Drawer (renders only when user clicks Edit)
