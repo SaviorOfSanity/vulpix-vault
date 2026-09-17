@@ -2172,12 +2172,32 @@ def extract_text_from_screenshot(image_file_or_bytes: Any) -> str:
         print(f"[OCR] Error opening image: {e}")
 
     return ""
+
+
+# =============================================================
 # Collection CRUD Operations
 # =============================================================
+
+def check_and_apply_initial_collection_seed() -> None:
+    """Auto-seeds user's genuine 19-card collection if not done yet or if dummy cards exist."""
+    ensure_tables_exist()
+    if get_system_setting("REAL_19_CARDS_SEEDED_V1") != "true":
+        with get_db_connection() as conn:
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) as cnt FROM my_collection;")
+            total_cards = c.fetchone()["cnt"]
+            c.execute("SELECT COUNT(*) as cnt FROM my_collection WHERE purchase_date = '2026-08-29';")
+            dummy_cards = c.fetchone()["cnt"]
+
+        if total_cards == 0 or dummy_cards > 0 or total_cards != 19:
+            populate_real_user_collection(clear_first=True)
+        set_system_setting("REAL_19_CARDS_SEEDED_V1", "true")
+
 
 def load_collection_df() -> pd.DataFrame:
     """Load user's collection with calculated market valuations and upgrade intelligence."""
     ensure_tables_exist()
+    check_and_apply_initial_collection_seed()
     with get_db_connection() as conn:
         df_col = pd.read_sql_query("SELECT * FROM my_collection ORDER BY purchase_date DESC", conn)
         df_market = pd.read_sql_query(

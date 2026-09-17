@@ -337,6 +337,14 @@ if deleting_id:
 if df_col.empty:
     st.info("💡 Your Vault is currently empty. Use any of the import tools above to add cards!")
 else:
+    if len(df_col) != 19 or any(str(r.get("purchase_date")) == "2026-08-29" for _, r in df_col.iterrows()):
+        st.warning("⚠️ **Notice:** Your database currently contains sample cards. Click below to load your genuine 19-card collection ($701.21):")
+        if st.button("✨ Load My Real 19-Card Collection Now ($701.21)", type="primary", key="btn_quick_seed_top_banner"):
+            cnt_u, val_u = populate_real_user_collection(clear_first=True)
+            st.cache_data.clear()
+            st.success(f"Loaded your {cnt_u} authentic cards (${val_u:.2f})!")
+            st.rerun()
+
     v_top1, v_top2 = st.columns([2, 3])
     with v_top1:
         st.markdown(f"#### 🏆 Your Collection ({len(df_col)} Items)")
