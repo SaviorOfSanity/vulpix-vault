@@ -19,6 +19,7 @@ from db_utils import (
     download_all_card_images_locally,
     generate_ebay_search_url,
     get_card_image_data_uri,
+    get_consolidated_release_groups,
     get_master_set_metrics,
     get_pricecharting_search_url,
     load_master_catalog_df,
@@ -121,33 +122,220 @@ if m_search:
     ]
 
 # Pagination & Layout Header
-m_top1, m_top2, m_top3 = st.columns([2.5, 1.5, 1.5])
-with m_top1:
-    st.markdown(f"**Found {len(filtered_master)} Cards Matching Filters**")
-with m_top2:
-    page_size_options = [24, 48, 96, "All"]
-    per_page_choice = st.selectbox("Cards per page:", page_size_options, index=0, key="m_per_page")
+m_top1, m_top2, m_top3 = st.columns([2.2, 1.3, 2.5])
 with m_top3:
-    master_view_mode = st.radio("Display Layout:", ["🃏 Card Grid View", "📋 Table / List View"], horizontal=True, key="master_v_mode")
+    master_view_mode = st.radio(
+        "Display Layout:",
+        ["🗂️ Consolidated Release Matrix", "🃏 Full Individual Cards Grid", "📋 Table / List View"],
+        horizontal=True,
+        key="master_v_mode",
+    )
 
-per_page = len(filtered_master) if per_page_choice == "All" or len(filtered_master) == 0 else int(per_page_choice)
-total_pages = max(1, (len(filtered_master) + per_page - 1) // per_page) if per_page > 0 else 1
+if "Consolidated" in master_view_mode:
+    release_groups = get_consolidated_release_groups(filtered_master)
+    with m_top1:
+        st.markdown(f"**Found {len(release_groups)} Releases ({len(filtered_master)} Total Variants)**")
+    with m_top2:
+        rel_page_choice = st.selectbox("Releases per page:", [10, 20, 40, "All"], index=1, key="m_rel_per_page")
 
-if total_pages > 1:
-    pg_c1, pg_c2, pg_c3 = st.columns([1, 2, 1])
-    with pg_c2:
-        page_num = st.number_input(f"Page (1 to {total_pages})", min_value=1, max_value=total_pages, value=1, step=1, key="m_page_num")
-else:
-    page_num = 1
+    r_per_page = len(release_groups) if rel_page_choice == "All" or len(release_groups) == 0 else int(rel_page_choice)
+    r_total_pages = max(1, (len(release_groups) + r_per_page - 1) // r_per_page) if r_per_page > 0 else 1
 
-start_idx = (page_num - 1) * per_page
-end_idx = min(start_idx + per_page, len(filtered_master))
-page_df = filtered_master.iloc[start_idx:end_idx]
+    if r_total_pages > 1:
+        r_pg1, r_pg2, r_pg3 = st.columns([1, 2, 1])
+        with r_pg2:
+            r_page_num = st.number_input(f"Page (1 to {r_total_pages})", min_value=1, max_value=r_total_pages, value=1, step=1, key="m_r_page_num")
+    else:
+        r_page_num = 1
 
-if total_pages > 1:
-    st.caption(f"Showing cards **{start_idx + 1}–{end_idx}** of **{len(filtered_master)}** (Page {page_num} of {total_pages})")
+    r_start_idx = (r_page_num - 1) * r_per_page
+    r_end_idx = min(r_start_idx + r_per_page, len(release_groups))
+    page_releases = release_groups[r_start_idx:r_end_idx]
 
-if "Card Grid" in master_view_mode:
+    if r_total_pages > 1:
+        st.caption(f"Showing releases **{r_start_idx + 1}–{r_end_idx}** of **{len(release_groups)}** (Page {r_page_num} of {r_total_pages})")
+
+    for r_idx, rel in enumerate(page_releases):
+        img_src = get_card_image_data_uri(rel["image_url"] if rel["image_url"] else DEFAULT_CARD_BACK_IMAGE)
+        owned_cnt = rel["owned_variants"]
+        total_cnt = rel["total_variants"]
+        pct = rel["completion_pct"]
+        prog_color = "#10b981" if owned_cnt == total_cnt and total_cnt > 0 else ("#34d399" if owned_cnt > 0 else "#94a3b8")
+
+        # Build Language Chips
+        lang_chips = []
+        for l in rel["all_languages"]:
+            if l in rel["owned_languages"]:
+                chip = f'<span style="background: rgba(16, 185, 129, 0.22); color: #34d399; border: 1px solid #10b981; font-weight: 700; padding: 3px 10px; border-radius: 12px; font-size: 0.76rem; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 0 8px rgba(16, 185, 129, 0.25);">✅ {l}</span>'
+            else:
+                chip = f'<span style="background: #181b23; color: #6b7280; border: 1px solid #2d3748; padding: 3px 10px; border-radius: 12px; font-size: 0.76rem; display: inline-flex; align-items: center; opacity: 0.65;">{l}</span>'
+            lang_chips.append(chip)
+        lang_chips_html = " ".join(lang_chips)
+
+        # Build Variant Chips
+        var_chips = []
+        for v in rel["variants"]:
+            if v["is_owned"]:
+                det = f' <span style="background: rgba(0,0,0,0.35); padding: 1px 6px; border-radius: 8px; font-size: 0.68rem; color: #a7f3d0;">{v["owned_details"]}</span>' if v["owned_details"] != "None" else ""
+                chip = f'<span style="background: linear-gradient(135deg, rgba(6, 95, 70, 0.9), rgba(4, 120, 87, 0.9)); color: #ecfdf5; border: 1px solid #10b981; font-weight: 700; padding: 4px 10px; border-radius: 12px; font-size: 0.76rem; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);">✅ {v["display_label"]}{det}</span>'
+            else:
+                chip = f'<span style="background: #131722; color: #71717a; border: 1px solid #232936; padding: 4px 10px; border-radius: 12px; font-size: 0.76rem; display: inline-flex; align-items: center; opacity: 0.75;">{v["display_label"]}</span>'
+            var_chips.append(chip)
+        var_chips_html = " ".join(var_chips)
+
+        raw_range = f"${rel['min_raw_price']:.2f}" if rel['min_raw_price'] == rel['max_raw_price'] and rel['min_raw_price'] > 0 else (f"${rel['min_raw_price']:.2f}–${rel['max_raw_price']:.2f}" if rel['max_raw_price'] > 0 else "—")
+        g10_range = f"${rel['min_grade10_price']:.2f}" if rel['min_grade10_price'] == rel['max_grade10_price'] and rel['min_grade10_price'] > 0 else (f"${rel['min_grade10_price']:.2f}–${rel['max_grade10_price']:.2f}" if rel['max_grade10_price'] > 0 else "—")
+
+        card_num_str = f"#{rel['card_number']}" if rel['card_number'] and str(rel['card_number']).lower() != "nan" else "(Promo / No #)"
+
+        rel_html = f"""<div class="slab-box" style="padding: 16px; margin-bottom: 12px; border-radius: 12px; background: #131722; border: 1px solid #232936;">
+<div style="display: flex; gap: 18px; align-items: flex-start;">
+<div style="flex: 0 0 100px; text-align: center;">
+<img src="{img_src}" loading="lazy" decoding="async" style="max-height: 140px; max-width: 100%; border-radius: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);" />
+<div style="margin-top: 6px; font-size: 0.75rem; font-weight: 700; color: #8c8d9a;">{rel['release_year']}</div>
+</div>
+<div style="flex: 1; min-width: 0;">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 6px; margin-bottom: 6px;">
+<div>
+<span style="font-size: 1.15rem; font-weight: 800; color: #ffffff;">{rel['card_name']}</span>
+<span style="color: #94a3b8; font-size: 0.88rem; margin-left: 8px;">{rel['set_name']} • {card_num_str}</span>
+</div>
+<div style="text-align: right;">
+<span style="font-size: 0.84rem; font-weight: 700; color: {prog_color};">{owned_cnt} / {total_cnt} Variants Owned ({pct}%)</span>
+</div>
+</div>
+<div style="height: 6px; background: #1e293b; border-radius: 4px; overflow: hidden; margin-bottom: 12px;">
+<div style="width: {pct}%; height: 100%; background: linear-gradient(90deg, #10b981, #34d399); border-radius: 4px;"></div>
+</div>
+<div style="margin-bottom: 10px;">
+<div style="font-size: 0.72rem; font-weight: 700; color: #8c8d9a; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">
+🌐 Languages:
+</div>
+<div style="display: flex; gap: 5px; flex-wrap: wrap; align-items: center;">
+{lang_chips_html}
+</div>
+</div>
+<div style="margin-bottom: 8px;">
+<div style="font-size: 0.72rem; font-weight: 700; color: #8c8d9a; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">
+🏷️ Variants & Editions:
+</div>
+<div style="display: flex; gap: 5px; flex-wrap: wrap; align-items: center;">
+{var_chips_html}
+</div>
+</div>
+<div style="display: flex; gap: 16px; font-size: 0.78rem; color: #8c8d9a; margin-top: 6px;">
+<span>Est Raw: <strong style="color: #ffd591;">{raw_range}</strong></span>
+<span>Est PSA 10: <strong style="color: #f59e0b;">{g10_range}</strong></span>
+</div>
+</div>
+</div>
+</div>"""
+
+        st.markdown(rel_html, unsafe_allow_html=True)
+
+        with st.expander(f"🔍 View {len(rel['variants'])} Specific Variants & Comps for {rel['card_name']} ({rel['set_name']})", expanded=False):
+            sub_cols = st.columns(min(3, max(1, len(rel["variants"]))))
+            for v_i, var in enumerate(rel["variants"]):
+                with sub_cols[v_i % len(sub_cols)]:
+                    var_owned = var["is_owned"]
+                    v_raw_display = f"${var['est_raw_price']:,.2f}" if var['est_raw_price'] > 0 else "—"
+                    v_g10_display = f"${var['est_grade10_price']:,.2f}" if var['est_grade10_price'] > 0 else "—"
+                    v_g9_display = f"${var['pricecharting_grade9']:,.2f}" if var['pricecharting_grade9'] > 0 else None
+
+                    st.markdown(f"""<div style="background: #0d1017; border: 1px solid {'#10b981' if var_owned else '#1f2937'}; border-radius: 8px; padding: 10px; margin-bottom: 8px;">
+<div style="font-weight: 700; font-size: 0.85rem; color: #ffffff;">{'✅ ' if var_owned else ''}{var['display_label']}</div>
+<div style="font-size: 0.75rem; color: #8c8d9a; margin-bottom: 4px;">Language: {var['language']} • #{var['card_number']}</div>
+<div style="font-size: 0.75rem; color: #ffd591;">Raw: <strong>{v_raw_display}</strong> • PSA 10: <strong style="color: #f59e0b;">{v_g10_display}</strong></div>
+{f'<div style="font-size: 0.75rem; color: #60a5fa;">PriceCharting Grade 9: <strong>{v_g9_display}</strong></div>' if v_g9_display else ''}
+{f'<div style="font-size: 0.72rem; color: #34d399; margin-top: 3px;">In Vault: {var["owned_details"]}</div>' if var_owned else ''}
+</div>""", unsafe_allow_html=True)
+
+                    raw_ebay_url = generate_ebay_search_url(
+                        card_name=var["card_name"],
+                        set_name=var["set_name"],
+                        card_number=var["card_number"],
+                        edition=var["edition"],
+                        language=var["language"],
+                        is_raw=True,
+                    )
+                    g10_ebay_url = generate_ebay_search_url(
+                        card_name=var["card_name"],
+                        set_name=var["set_name"],
+                        card_number=var["card_number"],
+                        edition=var["edition"],
+                        language=var["language"],
+                        grade_tier="Gem Mint 10",
+                    )
+                    pc_url = var["pricecharting_url"] or get_pricecharting_search_url(var["card_name"], var["set_name"], var["card_number"])
+
+                    b_c1, b_c2, b_c3 = st.columns(3)
+                    with b_c1:
+                        st.markdown(f'<a href="{raw_ebay_url}" target="_blank" class="btn-ebay" style="display: block; text-align: center; font-size: 0.7rem; padding: 3px;">🔍 Raw</a>', unsafe_allow_html=True)
+                    with b_c2:
+                        st.markdown(f'<a href="{g10_ebay_url}" target="_blank" class="btn-ebay" style="display: block; text-align: center; font-size: 0.7rem; padding: 3px; background: linear-gradient(135deg, #f59e0b, #d97706);">💎 PSA 10</a>', unsafe_allow_html=True)
+                    with b_c3:
+                        st.markdown(f'<a href="{pc_url}" target="_blank" class="btn-pc" style="display: block; text-align: center; font-size: 0.7rem; padding: 3px;">📊 Comps</a>', unsafe_allow_html=True)
+
+                    if var_owned:
+                        if st.button("❌ Remove from Vault", key=f"mat_unmark_{var['id']}", type="secondary"):
+                            unmark_card_as_owned(var["id"], var["card_name"], var["set_name"])
+                            st.success(f"Removed {var['display_label']} from Vault!")
+                            st.rerun()
+                    else:
+                        with st.popover("📥 Add to Vault"):
+                            with st.form(f"mat_add_{var['id']}"):
+                                q_cond = st.radio("Condition", ["Raw Single", "Graded Slab"], horizontal=True)
+                                q_co = st.selectbox("Grader", ["RAW", "PSA", "CGC", "BGS", "ARS", "ACE"]) if q_cond == "Graded Slab" else "RAW"
+                                q_tier = st.selectbox("Grade Label", ["Raw Single", "Gem Mint", "Pristine 10", "Black Label 10", "Mint 9", "Near Mint 8"])
+                                q_price = st.number_input("Purchase Price ($)", min_value=0.0, value=float(var["est_raw_price"] or 10.0))
+                                if st.form_submit_button("Confirm Add"):
+                                    add_card_to_collection({
+                                        "card_name": var["card_name"],
+                                        "set_name": var["set_name"],
+                                        "card_number": var["card_number"],
+                                        "grading_company": q_co,
+                                        "grade": 10.0 if q_cond == "Graded Slab" else 0.0,
+                                        "grade_label": q_tier,
+                                        "cert_number": "",
+                                        "purchase_price": q_price,
+                                        "purchase_date": datetime.today().strftime("%Y-%m-%d"),
+                                        "edition": var["edition"],
+                                        "language": var["language"],
+                                        "is_error": var["is_error"],
+                                        "error_type": var.get("error_description"),
+                                        "is_raw": 1 if q_cond == "Raw Single" else 0,
+                                        "pop_grade10": 0,
+                                        "master_card_id": var["id"],
+                                        "image_url": var["image_url"],
+                                        "notes": "Added from Master Set Matrix.",
+                                    })
+                                    st.success("Added to Vault!")
+                                    st.rerun()
+
+elif "Card Grid" in master_view_mode:
+    with m_top1:
+        st.markdown(f"**Found {len(filtered_master)} Cards Matching Filters**")
+    with m_top2:
+        page_size_options = [24, 48, 96, "All"]
+        per_page_choice = st.selectbox("Cards per page:", page_size_options, index=0, key="m_per_page")
+
+    per_page = len(filtered_master) if per_page_choice == "All" or len(filtered_master) == 0 else int(per_page_choice)
+    total_pages = max(1, (len(filtered_master) + per_page - 1) // per_page) if per_page > 0 else 1
+
+    if total_pages > 1:
+        pg_c1, pg_c2, pg_c3 = st.columns([1, 2, 1])
+        with pg_c2:
+            page_num = st.number_input(f"Page (1 to {total_pages})", min_value=1, max_value=total_pages, value=1, step=1, key="m_page_num")
+    else:
+        page_num = 1
+
+    start_idx = (page_num - 1) * per_page
+    end_idx = min(start_idx + per_page, len(filtered_master))
+    page_df = filtered_master.iloc[start_idx:end_idx]
+
+    if total_pages > 1:
+        st.caption(f"Showing cards **{start_idx + 1}–{end_idx}** of **{len(filtered_master)}** (Page {page_num} of {total_pages})")
+
     m_cols = st.columns(4)
     for idx, (_, row) in enumerate(page_df.iterrows()):
         col_target = m_cols[idx % 4]

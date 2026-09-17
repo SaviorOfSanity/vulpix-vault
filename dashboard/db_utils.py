@@ -145,6 +145,10 @@ def cards_match(col_card: Any, master_card: Any) -> bool:
     m_is_rh = m_ed in ["reverse_holo", "poke_ball", "master_ball"]
     if c_is_rh != m_is_rh:
         return False
+    if (c_ed == "master_ball") != (m_ed == "master_ball"):
+        return False
+    if (c_ed == "poke_ball") != (m_ed == "poke_ball"):
+        return False
 
     # 6. 1st Edition check
     if (c_ed == "1st_edition") != (m_ed == "1st_edition"):
@@ -382,11 +386,44 @@ def ensure_tables_exist():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_lookup ON market_sales(card_name, grading_company, grade, condition_type);")
 
         _seed_master_cards_if_missing(cursor)
+        _seed_pricecharting_benchmarks(cursor)
 
 
 def _seed_master_cards_if_missing(cursor: sqlite3.Cursor):
     """Ensures authentic niche & promo cards from the real collection exist in master_set_catalog."""
+    # Ensure Japanese 151 has both Poke Ball Reverse Holo and Master Ball Reverse Holo
+    cursor.execute("""
+        UPDATE master_set_catalog
+        SET edition = 'Poke Ball Reverse Holo',
+            notes = 'Poke Ball Reverse Holo pattern'
+        WHERE card_name = 'Vulpix' AND set_name LIKE '%151%' AND language = 'Japanese' AND edition = 'Reverse Holo';
+    """)
+
+    cursor.execute("""
+        UPDATE my_collection
+        SET master_card_id = (
+            SELECT id FROM master_set_catalog
+            WHERE card_name = 'Vulpix' AND set_name LIKE '%151%' AND language = 'Japanese' AND edition LIKE '%Master Ball%' LIMIT 1
+        )
+        WHERE edition LIKE '%Master Ball%';
+    """)
+
     extra_cards = [
+        {
+            "card_name": "Vulpix",
+            "set_name": "Pokémon Card 151",
+            "card_number": "037/165",
+            "release_year": 2023,
+            "language": "Japanese",
+            "edition": "Master Ball Reverse Holo",
+            "rarity": "Secret Reverse Holo",
+            "is_error": 0,
+            "error_description": "",
+            "est_raw_price": 35.0,
+            "est_grade10_price": 65.0,
+            "image_url": "https://images.pokemontcg.io/sv2a/37_hires.png",
+            "notes": "Japanese 151 SV2a #037/165 Master Ball Reverse Holo",
+        },
         {
             "card_name": "Alolan Vulpix",
             "set_name": "Playing Cards",
@@ -452,8 +489,8 @@ def _seed_master_cards_if_missing(cursor: sqlite3.Cursor):
     for card in extra_cards:
         cursor.execute("""
             SELECT id FROM master_set_catalog
-            WHERE card_name = ? AND set_name = ? AND card_number = ? AND language = ?;
-        """, (card["card_name"], card["set_name"], card["card_number"], card["language"]))
+            WHERE card_name = ? AND set_name = ? AND card_number = ? AND language = ? AND edition = ?;
+        """, (card["card_name"], card["set_name"], card["card_number"], card["language"], card["edition"]))
         existing = cursor.fetchone()
         if not existing:
             cursor.execute("""
@@ -467,6 +504,167 @@ def _seed_master_cards_if_missing(cursor: sqlite3.Cursor):
                 card["edition"], card["rarity"], card["is_error"], card["error_description"],
                 card["est_raw_price"], card["est_grade10_price"], card["image_url"], card["notes"]
             ))
+
+
+def _seed_pricecharting_benchmarks(cursor: sqlite3.Cursor):
+    """
+    Populates authentic PriceCharting benchmark valuations (Raw, Grade 9, PSA 10, and URLs).
+    Grounded directly in PriceCharting sales data.
+    """
+    benchmarks = [
+        # Blaine's Vulpix 1st Edition Gym Heroes #65 (from user's link)
+        {
+            "filter": ("Blaine's Vulpix", "Gym Heroes", "65/132", "1st Edition", 0),
+            "raw": 6.17, "g9": 28.25, "g10": 255.40,
+            "url": "https://www.pricecharting.com/game/pokemon-gym-heroes/blaine%27s-vulpix-1st-edition-65",
+        },
+        # Blaine's Vulpix Unlimited Gym Heroes #65
+        {
+            "filter": ("Blaine's Vulpix", "Gym Heroes", "65/132", "Blaine's Vulpix", 0),
+            "raw": 2.18, "g9": 16.50, "g10": 55.00,
+            "url": "https://www.pricecharting.com/game/pokemon-gym-heroes/blaine%27s-vulpix-65",
+        },
+        # Blaine's Vulpix Gym Challenge #66 1st Edition
+        {
+            "filter": ("Blaine's Vulpix", "Gym Challenge", "66/132", "1st Edition", 0),
+            "raw": 4.28, "g9": 22.00, "g10": 95.00,
+            "url": "https://www.pricecharting.com/game/pokemon-gym-challenge/blaine%27s-vulpix-1st-edition-66",
+        },
+        # Blaine's Vulpix Gym Challenge #66 Unlimited
+        {
+            "filter": ("Blaine's Vulpix", "Gym Challenge", "66/132", "Blaine's Vulpix", 0),
+            "raw": 1.49, "g9": 14.00, "g10": 45.00,
+            "url": "https://www.pricecharting.com/game/pokemon-gym-challenge/blaine%27s-vulpix-66",
+        },
+        # Base Set 68/102 1st Edition English
+        {
+            "filter": ("Vulpix", "Base Set", "68/102", "1st Edition", 0),
+            "raw": 25.00, "g9": 65.00, "g10": 240.00,
+            "url": "https://www.pricecharting.com/game/pokemon-base-set/vulpix-1st-edition-68",
+        },
+        # Base Set 68/102 Shadowless English
+        {
+            "filter": ("Vulpix", "Base Set", "68/102", "Shadowless", 0),
+            "raw": 10.00, "g9": 35.00, "g10": 120.00,
+            "url": "https://www.pricecharting.com/game/pokemon-base-set/vulpix-shadowless-68",
+        },
+        # Base Set 68/102 Unlimited English
+        {
+            "filter": ("Vulpix", "Base Set", "68/102", "Unlimited", 0),
+            "raw": 2.00, "g9": 18.00, "g10": 55.00,
+            "url": "https://www.pricecharting.com/game/pokemon-base-set/vulpix-68",
+        },
+        # Base Set 68/102 Chinese 1st Edition
+        {
+            "filter_custom": "card_name = 'Vulpix' AND set_name = 'Base Set' AND language LIKE '%Chinese%'",
+            "raw": 15.00, "g9": 45.00, "g10": 75.00,
+            "url": "https://www.pricecharting.com/search-products?q=pokemon+chinese+base+set+vulpix+1st+edition+68&type=prices",
+        },
+        # Japanese 151 Master Ball Reverse Holo
+        {
+            "filter_custom": "card_name = 'Vulpix' AND set_name LIKE '%151%' AND edition LIKE '%Master Ball%'",
+            "raw": 35.00, "g9": 45.00, "g10": 65.00,
+            "url": "https://www.pricecharting.com/game/pokemon-japanese-151/vulpix-master-ball-reverse-holo-37",
+        },
+        # Japanese 151 Poke Ball Reverse Holo
+        {
+            "filter_custom": "card_name = 'Vulpix' AND set_name LIKE '%151%' AND (edition LIKE '%Poke Ball%' OR edition = 'Reverse Holo') AND language = 'Japanese'",
+            "raw": 2.50, "g9": 15.00, "g10": 32.00,
+            "url": "https://www.pricecharting.com/game/pokemon-japanese-151/vulpix-poke-ball-reverse-holo-37",
+        },
+        # Silver Tempest Alolan Vulpix V #033/195
+        {
+            "filter": ("Alolan Vulpix V", "Silver Tempest", "033/195", "Alolan Vulpix V", 0),
+            "raw": 1.25, "g9": 15.00, "g10": 35.00,
+            "url": "https://www.pricecharting.com/game/pokemon-silver-tempest/alolan-vulpix-v-33",
+        },
+        # Silver Tempest Alolan Vulpix VSTAR #034/195
+        {
+            "filter": ("Alolan Vulpix VSTAR", "Silver Tempest", "034/195", "Alolan Vulpix VSTAR", 0),
+            "raw": 1.75, "g9": 18.00, "g10": 30.00,
+            "url": "https://www.pricecharting.com/game/pokemon-silver-tempest/alolan-vulpix-vstar-34",
+        },
+        # Silver Tempest Alolan Vulpix V Full Art #173/195
+        {
+            "filter": ("Alolan Vulpix V (Full Art)", "Silver Tempest", "173/195", "Alolan Vulpix V FA", 0),
+            "raw": 6.50, "g9": 20.00, "g10": 38.00,
+            "url": "https://www.pricecharting.com/game/pokemon-silver-tempest/alolan-vulpix-v-173",
+        },
+        # Hidden Fates Alolan Vulpix Shiny SV8/SV94
+        {
+            "filter": ("Alolan Vulpix (Shiny)", "Hidden Fates", "SV8/SV94", "Shiny Secret Rare", 0),
+            "raw": 4.50, "g9": 22.00, "g10": 45.00,
+            "url": "https://www.pricecharting.com/game/pokemon-hidden-fates/alolan-vulpix-sv8",
+        },
+        # EX Power Keepers Vulpix 69/108
+        {
+            "filter": ("Vulpix", "EX Power Keepers", "69/108", "Unlimited", 0),
+            "raw": 2.50, "g9": 18.00, "g10": 35.00,
+            "url": "https://www.pricecharting.com/game/pokemon-power-keepers/vulpix-69",
+        },
+        # Incandescent Arcana Alolan Vulpix 023/068
+        {
+            "filter": ("Alolan Vulpix", "Incandescent Arcana", "023/068", "Unlimited", 0),
+            "raw": 1.50, "g9": 15.00, "g10": 27.00,
+            "url": "https://www.pricecharting.com/game/pokemon-japanese-incandescent-arcana/alolan-vulpix-23",
+        },
+        # Crimson Haze Vulpix 010/066
+        {
+            "filter": ("Vulpix", "Crimson Haze", "010/066", "Unlimited", 0),
+            "raw": 1.00, "g9": 12.00, "g10": 25.00,
+            "url": "https://www.pricecharting.com/game/pokemon-japanese-crimson-haze/vulpix-10",
+        },
+        # Mega Brave Vulpix 067/066 AR
+        {
+            "filter": ("Vulpix", "Mega Brave", "067/066", "Art Rare (AR)", 0),
+            "raw": 8.00, "g9": 20.00, "g10": 32.00,
+            "url": "https://www.pricecharting.com/game/pokemon-japanese-mega-brave/vulpix-67",
+        },
+        # Daiichi Pan Promo #293/SM-P
+        {
+            "filter": ("Alolan Vulpix", "Daiichi Pan Promo", "293/SM-P", "Promo", 0),
+            "raw": 15.00, "g9": 45.00, "g10": 52.00,
+            "url": "https://www.pricecharting.com/search-products?q=pokemon+alolan+vulpix+daiichi+pan+293%2Fsm-p&type=prices",
+        },
+        # Mega Evolution Vulpix #138
+        {
+            "filter": ("Vulpix", "Mega Evolution", "138/132", "Illustration Rare", 0),
+            "raw": 20.00, "g9": 40.00, "g10": 63.60,
+            "url": "https://www.pricecharting.com/search-products?q=pokemon+vulpix+mega+evolution+138&type=prices",
+        },
+        # Neo Destiny / Darkness and to Light Vulpix
+        {
+            "filter_custom": "card_name = 'Vulpix' AND (set_name = 'Neo Destiny' OR set_name LIKE '%Darkness%') AND language = 'Japanese'",
+            "raw": 3.00, "g9": 15.00, "g10": 25.00,
+            "url": "https://www.pricecharting.com/game/pokemon-japanese-neo-destiny/vulpix-37",
+        },
+    ]
+
+    for b in benchmarks:
+        if "filter_custom" in b:
+            cursor.execute(f"""
+                UPDATE master_set_catalog
+                SET pricecharting_raw = :raw,
+                    pricecharting_grade9 = :g9,
+                    pricecharting_grade10 = :g10,
+                    pricecharting_url = :url,
+                    est_raw_price = CASE WHEN est_raw_price IN (0.0, 2.0, 45.0) THEN :raw ELSE est_raw_price END,
+                    est_grade10_price = CASE WHEN est_grade10_price IN (0.0, 45.0) THEN :g10 ELSE est_grade10_price END
+                WHERE {b['filter_custom']};
+            """, {"raw": b["raw"], "g9": b["g9"], "g10": b["g10"], "url": b["url"]})
+        else:
+            c_name, s_name, c_num, ed, is_err = b["filter"]
+            cursor.execute("""
+                UPDATE master_set_catalog
+                SET pricecharting_raw = :raw,
+                    pricecharting_grade9 = :g9,
+                    pricecharting_grade10 = :g10,
+                    pricecharting_url = :url,
+                    est_raw_price = CASE WHEN est_raw_price IN (0.0, 2.0, 45.0, 25.0) THEN :raw ELSE est_raw_price END,
+                    est_grade10_price = CASE WHEN est_grade10_price IN (0.0, 45.0, 250.0) THEN :g10 ELSE est_grade10_price END
+                WHERE card_name = :c_name AND set_name = :s_name AND card_number = :c_num AND edition = :ed AND is_error = :is_err;
+            """, {"raw": b["raw"], "g9": b["g9"], "g10": b["g10"], "url": b["url"], "c_name": c_name, "s_name": s_name, "c_num": c_num, "ed": ed, "is_err": is_err})
+
 
 
 # =============================================================
@@ -1689,6 +1887,115 @@ def get_master_set_metrics() -> Dict[str, Any]:
     }
 
 
+def get_consolidated_release_groups(df_master: pd.DataFrame) -> List[Dict[str, Any]]:
+    """
+    Consolidates catalog cards into unified release groups for the Matrix view.
+    Groups entries by (card_name, normalized_set_name, base_card_number).
+    """
+    if df_master.empty:
+        return []
+
+    groups_dict: Dict[Tuple[str, str, str], List[Any]] = {}
+    for _, row in df_master.iterrows():
+        c_name = str(row["card_name"])
+        raw_set = str(row["set_name"])
+        # Normalize minor set variations for clean release grouping
+        clean_set = re.sub(r"\s*\((?:Unlimited|UK/4th Print|1st Edition|Standard)\)", "", raw_set, flags=re.IGNORECASE).strip()
+        base_num = extract_base_number(str(row["card_number"])) or str(row["card_number"]).strip()
+        k = (c_name, clean_set, base_num)
+        if k not in groups_dict:
+            groups_dict[k] = []
+        groups_dict[k].append(row)
+
+    release_groups = []
+    for (c_name, s_name, num), rows in groups_dict.items():
+        primary_row = rows[0]
+        year = int(primary_row.get("release_year") or 2000)
+        img_url = next(
+            (r["image_url"] for r in rows if r.get("image_url") and r["image_url"] != DEFAULT_CARD_BACK_IMAGE),
+            primary_row.get("image_url") or DEFAULT_CARD_BACK_IMAGE
+        )
+
+        total_vars = len(rows)
+        owned_rows = [r for r in rows if r.get("is_owned")]
+        owned_vars = len(owned_rows)
+        pct = round((owned_vars / total_vars) * 100, 1) if total_vars > 0 else 0.0
+
+        # Unique languages in standard display order
+        lang_order = ["English", "Japanese", "German", "French", "Italian", "Spanish", "Chinese", "T. Chinese", "Korean", "Dutch", "Portuguese"]
+        unique_langs = sorted(list(set(r["language"] for r in rows)), key=lambda l: lang_order.index(l) if l in lang_order else 99)
+        owned_langs = set(r["language"] for r in owned_rows)
+
+        # Min & Max prices
+        raw_prices = [float(r["est_raw_price"]) for r in rows if float(r.get("est_raw_price") or 0.0) > 0]
+        g10_prices = [float(r["est_grade10_price"]) for r in rows if float(r.get("est_grade10_price") or 0.0) > 0]
+        min_raw = min(raw_prices) if raw_prices else 0.0
+        max_raw = max(raw_prices) if raw_prices else 0.0
+        min_g10 = min(g10_prices) if g10_prices else 0.0
+        max_g10 = max(g10_prices) if g10_prices else 0.0
+
+        # Variants list formatted for badges/chips
+        variant_items = []
+        for r in rows:
+            ed = str(r.get("edition", "Unlimited"))
+            lg = str(r.get("language", "English"))
+            is_err = bool(r.get("is_error"))
+            err_desc = str(r.get("error_description") or "")
+
+            if is_err and err_desc:
+                label = f"{err_desc} ({lg})"
+            else:
+                label = f"{ed} ({lg})"
+
+            variant_items.append({
+                "id": int(r["id"]),
+                "card_name": str(r["card_name"]),
+                "set_name": str(r["set_name"]),
+                "card_number": str(r.get("card_number") or ""),
+                "edition": ed,
+                "language": lg,
+                "is_error": is_err,
+                "error_description": err_desc,
+                "display_label": label,
+                "is_owned": bool(r.get("is_owned")),
+                "owned_copies": int(r.get("owned_copies") or 0),
+                "owned_details": str(r.get("owned_details") or ""),
+                "est_raw_price": float(r.get("est_raw_price") or 0.0),
+                "est_grade10_price": float(r.get("est_grade10_price") or 0.0),
+                "pricecharting_raw": float(r.get("pricecharting_raw") or 0.0),
+                "pricecharting_grade9": float(r.get("pricecharting_grade9") or 0.0),
+                "pricecharting_grade10": float(r.get("pricecharting_grade10") or 0.0),
+                "pricecharting_url": str(r.get("pricecharting_url") or ""),
+                "image_url": str(r.get("image_url") or img_url),
+            })
+
+        # Sort variants: owned first, then 1st edition, then by language
+        variant_items.sort(key=lambda v: (0 if v["is_owned"] else 1, 0 if "1st" in v["edition"].lower() else 1, v["language"]))
+
+        release_groups.append({
+            "card_name": c_name,
+            "set_name": s_name,
+            "card_number": str(primary_row.get("card_number") or num),
+            "base_number": num,
+            "release_year": year,
+            "image_url": img_url,
+            "total_variants": total_vars,
+            "owned_variants": owned_vars,
+            "completion_pct": pct,
+            "all_languages": unique_langs,
+            "owned_languages": owned_langs,
+            "min_raw_price": min_raw,
+            "max_raw_price": max_raw,
+            "min_grade10_price": min_g10,
+            "max_grade10_price": max_g10,
+            "variants": variant_items,
+        })
+
+    # Sort releases chronologically by release year, then set name
+    release_groups.sort(key=lambda g: (g["release_year"], g["set_name"], g["card_name"]))
+    return release_groups
+
+
 def bulk_import_collection_from_df(df_input: pd.DataFrame) -> Tuple[int, str]:
     """Imports user's owned cards from a CSV directly into my_collection."""
     ensure_tables_exist()
@@ -2390,14 +2697,14 @@ def load_collection_df() -> pd.DataFrame:
             "SELECT card_name, grading_company, grade, grade_label, condition_type, total_price, sale_date, scraped_at FROM market_sales ORDER BY COALESCE(sale_date, scraped_at) DESC",
             conn,
         )
-        df_master = pd.read_sql_query("SELECT id, card_name, set_name, card_number, est_raw_price, est_grade10_price, pop_grade10, pop_pristine10, release_year, rarity FROM master_set_catalog", conn)
+        df_master = pd.read_sql_query("SELECT * FROM master_set_catalog", conn)
 
     if df_col.empty:
         return df_col
 
-    # Map master cards by ID and by (set, number) as lightweight dicts
+    # Map master cards by ID and prepared records for fast matching
     master_by_id = {int(m["id"]): dict(m) for _, m in df_master.iterrows()}
-    master_by_key = {(normalize_str(str(m["set_name"])), extract_base_number(str(m["card_number"]))): dict(m) for _, m in df_master.iterrows()}
+    master_records = [dict(m) for _, m in df_master.iterrows()]
 
     est_values = []
     gain_dollars = []
@@ -2415,12 +2722,14 @@ def load_collection_df() -> pd.DataFrame:
         cost = float(row["purchase_price"] or 0.0)
         grade_num = float(row.get("grade") or 0.0)
 
-        # Master Catalog fair value floor
+        # Master Catalog fair value floor & PriceCharting lookup via strict cards_match
         mid = row.get("master_card_id")
         m_info = master_by_id.get(int(mid)) if (mid and pd.notna(mid)) else None
         if not m_info:
-            k = (normalize_str(str(row["set_name"])), extract_base_number(str(row["card_number"])))
-            m_info = master_by_key.get(k)
+            for m in master_records:
+                if cards_match(dict(row), m):
+                    m_info = m
+                    break
 
         pc_benchmark = 0.0
         master_floor = 0.0
@@ -2448,8 +2757,10 @@ def load_collection_df() -> pd.DataFrame:
                 master_floor = m_raw
             elif grade_num >= 10.0:
                 master_floor = m_g10
+            elif pc_g9 > 0:
+                master_floor = pc_g9
             else:
-                master_floor = m_raw * (2.0 if grade_num >= 9.0 else 1.2)
+                master_floor = m_raw
 
         # Fast match recent market sales
         matched_prices = []
@@ -2467,6 +2778,8 @@ def load_collection_df() -> pd.DataFrame:
                 for _, m_row in cand.head(25).iterrows():
                     t = str(m_row.get("title", "")).lower()
                     if "alolan" in card_name_str.lower() and "alolan" not in t:
+                        continue
+                    if "1st" in str(row["edition"]).lower() and "1st" not in t and "first" not in t:
                         continue
                     if m_num_clean and m_num_clean not in t:
                         continue
