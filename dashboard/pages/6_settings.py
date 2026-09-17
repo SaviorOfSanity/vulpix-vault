@@ -171,8 +171,18 @@ with st.form("ebay_api_settings_form"):
                 dev_id=in_ebay_dev_id.strip(),
                 cert_id=in_ebay_cert_id.strip(),
             )
-            if ok:
-                st.success(f"✅ {msg}")
-                st.rerun()
-            else:
-                st.error(f"❌ {msg}")
+            st.session_state["ebay_sync_result"] = (ok, msg, stats)
+
+    if "ebay_sync_result" in st.session_state:
+        ok, msg, stats = st.session_state["ebay_sync_result"]
+        st.markdown("---")
+        if ok:
+            st.success(f"✅ {msg}")
+            s_c1, s_c2, s_c3, s_c4 = st.columns(4)
+            s_c1.metric("New Cards Added", stats.get("won_added", 0))
+            s_c2.metric("Duplicates Skipped", stats.get("skipped_dup", 0))
+            s_c3.metric("Non-Vulpix Excluded", stats.get("skipped_non_vulpix", 0))
+            s_c4.metric("Watchlist / Bids", f"{stats.get('watch_count', 0)} / {stats.get('bid_count', 0)}")
+        else:
+            st.error(f"❌ {msg}")
+

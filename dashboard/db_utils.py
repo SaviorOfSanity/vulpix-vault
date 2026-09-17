@@ -2508,6 +2508,11 @@ def sync_ebay_user_account(
             img_url = item.findtext(".//ebay:GalleryURL", "", ns) or DEFAULT_CARD_BACK_IMAGE
 
             if item_id and title:
+                t_lower = title.lower()
+                is_vulpix_card = any(kw in t_lower for kw in ["vulpix", "rokon", "alolan vulpix"]) or ("pikachu" in t_lower and "poncho" in t_lower and "vulpix" in t_lower)
+                if not is_vulpix_card:
+                    continue
+
                 add_to_sniper_watchlist({
                     "listing_id": item_id,
                     "card_name": "Vulpix",
@@ -2525,30 +2530,91 @@ def sync_ebay_user_account(
                 })
                 watch_count += 1
 
+        # Check existing collection to detect duplicates
+        existing_notes = set()
+        existing_cards = set()
+        with get_db_connection() as conn:
+            c = conn.cursor()
+            c.execute("SELECT card_name, set_name, card_number, purchase_date, notes FROM my_collection;")
+            for r in c.fetchall():
+                if r["notes"]:
+                    existing_notes.add(str(r["notes"]))
+                k = (normalize_str(str(r["card_name"])), normalize_str(str(r["set_name"])), extract_base_number(str(r["card_number"])))
+                existing_cards.add(k)
+
         # 2. Process WonList -> Vault Collection
-        won_count = 0
-        for item in root.findall(".//ebay:WonList//ebay:Item", ns):
+        won_items = root.findall(".//ebay:WonList//ebay:Item", ns)
+        total_won = len(won_items)
+        won_added = 0
+        skipped_dup = 0
+        skipped_non_vulpix = 0
+
+        for item in won_items:
             item_id = item.findtext("ebay:ItemID", "", ns)
-            title = item.findtext("ebay:Title", "", ns)
+            title = item.findtext("ebay:Title", "", ns) or ""
             price = float(item.findtext(".//ebay:CurrentPrice", "0.0", ns) or 0.0)
             end_time = item.findtext(".//ebay:EndTime", "", ns)
             end_date = end_time[:10] if end_time else datetime.today().strftime("%Y-%m-%d")
 
-            if title and "vulpix" in title.lower():
-                parsed_list = parse_ebay_purchase_history_text(f"{title}\nUS ${price}\nOrder number: {item_id}\nDelivered on {end_date}")
-                if parsed_list:
-                    bulk_import_ebay_history(parsed_list)
-                    won_count += len(parsed_list)
+            t_lower = title.lower()
+            # Must be a Vulpix / Rokon Pokémon item
+            is_vulpix_card = any(kw in t_lower for kw in ["vulpix", "rokon", "alolan vulpix"]) or ("pikachu" in t_lower and "poncho" in t_lower and "vulpix" in t_lower)
+            if not is_vulpix_card:
+                skipped_non_vulpix += 1
+                continue
+
+            # Duplicate check: check if this ItemID is already in collection notes
+            is_dup = False
+            if item_id:
+                for note_str in existing_notes:
+                    if item_id in note_str:
+                        is_dup = True
+                        break
+
+            if is_dup:
+                skipped_dup += 1
+                continue
+
+            parsed_list = parse_ebay_purchase_history_text(f"{title}\nUS ${price}\nOrder number: {item_id}\nDelivered on {end_date}")
+            if parsed_list:
+                for p_item in parsed_list:
+                    p_key = (normalize_str(str(p_item.get("card_name"))), normalize_str(str(p_item.get("set_name"))), extract_base_number(str(p_item.get("card_number"))))
+                    if p_key in existing_cards:
+                        skipped_dup += 1
+                        continue
+                    add_card_to_collection(p_item)
+                    existing_cards.add(p_key)
+                    if item_id:
+                        existing_notes.add(item_id)
+                    won_added += 1
 
         # 3. Active Bids Count
         bid_items = root.findall(".//ebay:BidList//ebay:Item", ns)
         bid_count = len(bid_items)
 
-        summary_msg = f"Synced with eBay! Loaded {watch_count} watchlist targets, {won_count} purchase orders, and {bid_count} active bids."
+        parts = []
+        if won_added > 0:
+            parts.append(f"🎉 Added {won_added} new Vulpix card(s) to Vault")
+        elif skipped_dup > 0:
+            parts.append(f"All {skipped_dup} Vulpix card(s) in past 60-day purchases are already in your Vault")
+        elif total_won > 0:
+            parts.append(f"Found {total_won} eBay purchase(s), but 0 Vulpix cards ({skipped_non_vulpix} non-Vulpix items excluded)")
+        else:
+            parts.append("0 purchases found in past 60 days")
+
+        if watch_count > 0:
+            parts.append(f"{watch_count} watchlist item(s) tracked")
+        if bid_count > 0:
+            parts.append(f"{bid_count} active bid(s) tracked")
+
+        summary_msg = "Synced with eBay! " + " • ".join(parts) + "."
         return True, summary_msg, {
             "watch_count": watch_count,
-            "won_count": won_count,
+            "won_added": won_added,
+            "skipped_dup": skipped_dup,
+            "skipped_non_vulpix": skipped_non_vulpix,
             "bid_count": bid_count,
+            "total_won": total_won,
         }
 
     except Exception as e:

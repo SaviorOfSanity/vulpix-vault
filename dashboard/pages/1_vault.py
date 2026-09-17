@@ -46,6 +46,10 @@ from styles import (
 apply_custom_styles()
 render_header()
 
+if "vault_flash_msg" in st.session_state:
+    st.success(st.session_state.pop("vault_flash_msg"))
+    st.balloons()
+
 # Fast Data Loaders (Direct SQLite query executes in < 20ms)
 df_col = load_collection_df()
 port_metrics = get_portfolio_metrics()
@@ -189,10 +193,13 @@ with imp_t2:
                 with st.spinner("Connecting to eBay Trading API to pull your won list..."):
                     ok_s, msg_s, d_s = sync_ebay_user_account(user_token=user_tok)
                     if ok_s:
-                        st.success(msg_s)
-                        st.rerun()
+                        if d_s.get("won_added", 0) > 0:
+                            st.session_state["vault_flash_msg"] = msg_s
+                            st.rerun()
+                        else:
+                            st.info(f"ℹ️ {msg_s}")
                     else:
-                        st.error(msg_s)
+                        st.error(f"❌ {msg_s}")
 
     st.markdown("Or paste an individual eBay listing link or Item ID to auto-extract details:")
     ebay_url_input = st.text_input(

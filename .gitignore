@@ -42,3 +42,8 @@ ENV/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Temporary & scratch files
+temp_ebay.html
+vulpix_vault.db
+scratch/
