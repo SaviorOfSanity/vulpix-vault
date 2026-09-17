@@ -1604,27 +1604,46 @@ def parse_ebay_purchase_history_text(raw_text: str) -> List[Dict[str, Any]]:
     """
     Intelligently parses copy-pasted text from eBay purchase history, order emails, or receipts.
     Extracts Card Name, Set, Number, Grader, Grade, Purchase Price, Order Date, and Order Number.
+    Guarantees 0 duplicates by splitting on order boundaries and tracking unique order numbers.
     """
     if not raw_text or not raw_text.strip():
         return []
 
+    text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Split by order boundary: eBay ends each order block with 'More actions'. If not present, split by order date/number.
+    if re.search(r'(?i)\bMore actions\b', text):
+        chunks = re.split(r'(?i)\bMore actions\b', text)
+    else:
+        chunks = re.split(r'(?i)(?=(?:delivered|paid|shipped)?order\s*date:|\border\s*number:\s*[0-9-]+)', text)
+        if len(chunks) <= 1:
+            chunks = re.split(r'\n\s*\n\s*\n', text)
+
+    seen_orders = set()
+    seen_signatures = set()
     parsed_items = []
-    # Split text into order blocks by delivery/order markers or double newlines
-    chunks = re.split(r'(?i)(?=(?:delivered|shipped|paid|ordered|purchased)\s+(?:on|by)\b|order\s+date:)', raw_text)
-    if len(chunks) <= 1:
-        chunks = re.split(r'\n\s*\n', raw_text)
 
     for ch in chunks:
         ch_str = ch.strip()
-        if not ch_str or len(ch_str) < 10:
+        if not ch_str or len(ch_str) < 15:
+            continue
+
+        # Extract order number
+        order_match = re.search(r'order\s*(?:number|#)?[:\s]*([0-9]{2,}-[0-9]{4,}-[0-9]{4,}|[0-9]{10,})', ch_str, re.IGNORECASE)
+        order_num = order_match.group(1) if order_match else ""
+        if order_num and order_num in seen_orders:
             continue
 
         # Extract price
-        price_match = re.search(r'(?:paid|total|order\s+total|us)?\s*\$([0-9]+(?:\.[0-9]{2})?)', ch_str, re.IGNORECASE)
+        price_match = re.search(r'(?:order\s+total:\s*)?(?:paid\s*)?(?:US\s*)?\$([0-9]+(?:\.[0-9]{2})?)', ch_str, re.IGNORECASE)
         price = float(price_match.group(1)) if price_match else 0.0
 
-        # Extract date
-        date_match = re.search(r'(?:(?:delivered|shipped|paid|ordered|purchased)\s+(?:on\s+)?(?:[A-Za-z]+,\s*)?|order\s+date:\s*)([A-Za-z]{3,9}\s+[0-9]{1,2},?\s+[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})', ch_str, re.IGNORECASE)
+        # Discard phantom chunks with 0 price if an order number is missing
+        if price <= 0.0 and not order_num:
+            continue
+
+        # Extract date: handles 'DeliveredOrder date:Jun 18, 2026' or 'Order date: Jun 22, 2026' or 'Delivered on Fri, Jun 26'
+        date_match = re.search(r'(?:order\s*date:\s*|delivered\s+on\s+(?:[a-za-z]+,\s*)?)([A-Za-z]{3,9}\s+[0-9]{1,2},?\s+[0-9]{4})', ch_str, re.IGNORECASE)
         date_str = datetime.today().strftime("%Y-%m-%d")
         if date_match:
             d_raw = date_match.group(1).replace(",", "").strip()
@@ -1636,26 +1655,28 @@ def parse_ebay_purchase_history_text(raw_text: str) -> List[Dict[str, Any]]:
                 except Exception:
                     pass
 
-        # Extract order number
-        order_match = re.search(r'order\s*(?:number|#)?[:\s]*([0-9]{2,}-[0-9]{4,}-[0-9]{4,}|[0-9]{10,})', ch_str, re.IGNORECASE)
-        order_num = order_match.group(1) if order_match else ""
-
         # Extract title line containing card keywords
-        ch_lines = [l.strip() for l in ch.splitlines() if l.strip()]
+        ch_lines = [l.strip() for l in ch_str.splitlines() if l.strip()]
         title = ""
         for line in ch_lines:
-            if any(k in line.lower() for k in ["vulpix", "pikachu", "pokemon", "psa", "cgc", "bgs", "slab", "gem mt"]):
-                if not line.lower().startswith("order") and not line.lower().startswith("delivered") and not line.lower().startswith("sold by") and not line.lower().startswith("returns"):
+            low_l = line.lower()
+            if any(k in low_l for k in ["vulpix", "rokon", "alolan vulpix"]) or ("pikachu" in low_l and "poncho" in low_l):
+                if not any(low_l.startswith(p) for p in ["order", "delivered", "shipped", "paid", "sold by", "returns", "view", "more", "resell"]):
                     title = line
-                    break
-        if not title and ch_lines:
-            for l in ch_lines:
-                if len(l) > 15 and not l.lower().startswith("order") and not l.lower().startswith("delivered"):
-                    title = l
                     break
 
         if not title:
             continue
+
+        # Check signature deduplication
+        card_sig = (title.lower()[:20], price)
+        if card_sig in seen_signatures:
+            continue
+        seen_signatures.add(card_sig)
+        if order_num:
+            seen_orders.add(order_num)
+
+        t_low = title.lower()
 
         # Parse Grader & Grade
         grader = "RAW"
@@ -1663,80 +1684,140 @@ def parse_ebay_purchase_history_text(raw_text: str) -> List[Dict[str, Any]]:
         grade_label = "Raw Single"
         is_raw = 1
 
-        t_low = title.lower()
-        if "pristine 10" in t_low:
+        if "cgc" in t_low:
+            grader = "CGC"
+        elif "psa" in t_low:
+            grader = "PSA"
+        elif "bgs" in t_low:
+            grader = "BGS"
+
+        if "pristine" in t_low:
             grade_num = 10.0
             grade_label = "Pristine 10"
             is_raw = 0
-            grader = "CGC" if "cgc" in t_low else ("BGS" if "bgs" in t_low else "PSA")
+            if grader == "RAW":
+                grader = "CGC"
         elif "black label" in t_low:
             grade_num = 10.0
             grade_label = "Black Label 10"
             is_raw = 0
             grader = "BGS"
-        elif "psa 10" in t_low or "gem mt" in t_low or "cgc 10" in t_low:
+        elif "gem mint" in t_low or "gem mt" in t_low or "psa 10" in t_low or "cgc 10" in t_low or "cgc gem mint" in t_low:
             grade_num = 10.0
-            grade_label = "Gem Mint"
+            grade_label = "Gem Mint 10"
             is_raw = 0
-            grader = "PSA" if "psa" in t_low else ("CGC" if "cgc" in t_low else "PSA")
-        elif "psa 9" in t_low or "cgc 9" in t_low or "mint 9" in t_low:
+            if grader == "RAW":
+                grader = "PSA"
+        elif "9.5" in t_low:
+            grade_num = 9.5
+            grade_label = "Mint 9.5"
+            is_raw = 0
+        elif "mint 9" in t_low or "psa 9" in t_low or "cgc 9" in t_low:
             grade_num = 9.0
             grade_label = "Mint 9"
             is_raw = 0
-            grader = "PSA" if "psa" in t_low else "CGC"
-        elif "psa 8" in t_low or "cgc 8" in t_low or "nm 8" in t_low:
+        elif "nm 8" in t_low or "psa 8" in t_low or "cgc 8" in t_low or "near mint 8" in t_low:
             grade_num = 8.0
             grade_label = "Near Mint 8"
             is_raw = 0
-            grader = "PSA" if "psa" in t_low else "CGC"
 
         # Parse language
-        lang = "Japanese" if "japanese" in t_low or "jp" in t_low else ("Korean" if "korean" in t_low else "English")
+        lang = "English"
+        if "japanese" in t_low or " jp" in t_low or "jp " in t_low or "japan" in t_low or "daiichi" in t_low or "151 sv2a" in t_low or "crimson haze" in t_low:
+            lang = "Japanese"
+        elif "korean" in t_low or "kor" in t_low:
+            lang = "Korean"
+        elif "chinese" in t_low:
+            lang = "Chinese"
+        elif "german" in t_low:
+            lang = "German"
+        elif "french" in t_low:
+            lang = "French"
 
-        # Parse card number: "023/068", "SV8/SV94", etc.
-        num_match = re.search(r'([A-Za-z0-9]+/[A-Za-z0-9]+)', title)
-        card_num = num_match.group(1) if num_match else ""
+        # Parse card number
+        card_num = ""
+        num_slash = re.search(r'([A-Za-z0-9]+/[A-Za-z0-9]+)', title)
+        if num_slash:
+            card_num = num_slash.group(1)
+        else:
+            hash_num = re.search(r'#([0-9A-Za-z-]+)', title)
+            if hash_num:
+                card_num = hash_num.group(1)
 
-        # Parse set name
+        # Parse Set Name
         set_name = "Promo"
-        if "hidden fates" in t_low:
-            set_name = "Hidden Fates"
-        elif "incandescent arcana" in t_low or "023/068" in title:
-            set_name = "Incandescent Arcana"
-        elif "silver tempest" in t_low:
-            set_name = "Silver Tempest"
-        elif "base set" in t_low:
-            set_name = "Base Set"
-        elif "gym heroes" in t_low:
+        if "gym heroes" in t_low:
             set_name = "Gym Heroes"
+            card_num = card_num or "65/132"
         elif "gym challenge" in t_low:
             set_name = "Gym Challenge"
-        elif "sun & moon" in t_low or "sun and moon" in t_low:
-            set_name = "Sun & Moon"
+            card_num = card_num or "66/132"
+        elif "silver tempest" in t_low:
+            set_name = "Silver Tempest"
+        elif "hidden fates" in t_low:
+            set_name = "Hidden Fates"
+            card_num = card_num or "SV8/SV94"
+        elif "incandescent arcana" in t_low or "023/068" in title:
+            set_name = "Incandescent Arcana"
+            card_num = card_num or "023/068"
+        elif "crimson haze" in t_low or "010/066" in title:
+            set_name = "Crimson Haze"
+            card_num = card_num or "010/066"
+        elif "151" in t_low:
+            set_name = "Pokémon Card 151"
+            card_num = card_num or "037/165"
+        elif "darkness, and to light" in t_low or "neo destiny" in t_low:
+            set_name = "Neo Destiny"
+            card_num = card_num or "37/105"
+        elif "mega brave" in t_low or "m1l" in t_low:
+            set_name = "Mega Brave"
+            card_num = card_num or "067/066"
+        elif "mega evolution" in t_low or "meg" in t_low:
+            set_name = "Mega Evolution"
+            card_num = card_num or "138"
+        elif "playing cards" in t_low:
+            set_name = "Playing Cards"
+            if "4 of diamonds" in t_low:
+                card_num = "4 of Diamonds"
+            elif "ninety-nine" in t_low or "99" in t_low:
+                card_num = "8"
+            elif "safari" in t_low:
+                card_num = "5"
+        elif "ex power keepers" in t_low or "power keepers" in t_low:
+            set_name = "EX Power Keepers"
+            card_num = card_num or "69/108"
+        elif "base set" in t_low:
+            set_name = "Base Set"
+            card_num = card_num or "68/102"
+        elif "daiichi" in t_low:
+            set_name = "Daiichi Pan Promo"
+            card_num = card_num or "293/SM-P"
 
-        # Parse card name
+        # Parse Card Name
         card_name = "Alolan Vulpix" if "alolan" in t_low else "Vulpix"
         if "blaine" in t_low:
             card_name = "Blaine's Vulpix"
         elif "brock" in t_low:
             card_name = "Brock's Vulpix"
-        elif "poncho" in t_low:
-            card_name = "Poncho-wearing Pikachu (Alolan Vulpix Poncho)" if "alolan" in t_low else "Poncho-wearing Pikachu (Vulpix Poncho)"
+        elif "vstar" in t_low:
+            card_name = "Alolan Vulpix VSTAR"
+        elif "v holo" in t_low or "v pristine" in t_low or "v full art" in t_low or "173/195" in title:
+            card_name = "Alolan Vulpix V (Full Art)" if "173/195" in card_num else "Alolan Vulpix V"
 
-        # Parse Edition
         edition = "Unlimited"
         if "1st" in t_low or "first edition" in t_low:
             edition = "1st Edition"
         elif "shadowless" in t_low:
             edition = "Shadowless"
-        elif "rainbow" in t_low:
-            edition = "Rainbow Rare (HR)"
-        elif "art rare" in t_low or "ar" in t_low:
+        elif "master ball" in t_low:
+            edition = "Master Ball Reverse Holo"
+        elif "poke ball" in t_low or "pokeball" in t_low:
+            edition = "Poke Ball Reverse Holo"
+        elif "art rare" in t_low or "illustration rare" in t_low:
             edition = "Art Rare (AR)"
-        elif "shiny" in t_low or "holo" in t_low:
-            edition = "Shiny Vault / Baby Shiny" if "hidden fates" in t_low else "Unlimited"
+        elif "shiny" in t_low:
+            edition = "Shiny Vault / Baby Shiny"
 
-        # Resolve image
         meta = resolve_card_metadata(set_name, card_num, card_name)
         img_url = meta.get("image_url") or DEFAULT_CARD_BACK_IMAGE
 
@@ -1762,14 +1843,92 @@ def parse_ebay_purchase_history_text(raw_text: str) -> List[Dict[str, Any]]:
 
 
 def bulk_import_ebay_history(items: List[Dict[str, Any]]) -> Tuple[int, str]:
-    """Bulk imports parsed eBay purchase history items directly into Vault."""
+    """Bulk imports parsed eBay purchase history items directly into Vault, skipping duplicates."""
     if not items:
         return 0, "No items to import."
-    count = 0
+
+    existing_notes = set()
+    existing_cards = set()
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("SELECT card_name, set_name, card_number, purchase_price, purchase_date, notes FROM my_collection;")
+        for r in c.fetchall():
+            if r["notes"]:
+                existing_notes.add(str(r["notes"]))
+            k = (
+                normalize_str(str(r["card_name"])),
+                normalize_str(str(r["set_name"])),
+                extract_base_number(str(r["card_number"])),
+                round(float(r["purchase_price"] or 0), 2),
+                str(r["purchase_date"]),
+            )
+            existing_cards.add(k)
+
+    added = 0
+    skipped = 0
     for it in items:
+        order_match = re.search(r'order\s*#?([0-9-]+)', it.get("notes", ""), re.IGNORECASE)
+        order_id = order_match.group(1) if order_match else ""
+        if order_id and any(order_id in n for n in existing_notes):
+            skipped += 1
+            continue
+
+        k = (
+            normalize_str(str(it.get("card_name"))),
+            normalize_str(str(it.get("set_name"))),
+            extract_base_number(str(it.get("card_number"))),
+            round(float(it.get("purchase_price") or 0), 2),
+            str(it.get("purchase_date")),
+        )
+        if k in existing_cards:
+            skipped += 1
+            continue
+
         add_card_to_collection(it)
-        count += 1
-    return count, f"Successfully imported {count} card(s) into your Vault!"
+        existing_cards.add(k)
+        if it.get("notes"):
+            existing_notes.add(it["notes"])
+        added += 1
+
+    msg = f"Successfully imported {added} card(s) into your Vault!"
+    if skipped > 0:
+        msg += f" ({skipped} duplicate(s) already in collection were skipped)"
+    return added, msg
+
+
+def remove_collection_duplicates() -> int:
+    """Removes duplicate cards in my_collection keeping the earliest entry."""
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            DELETE FROM my_collection
+            WHERE id NOT IN (
+                SELECT MIN(id)
+                FROM my_collection
+                GROUP BY card_name, set_name, card_number, grading_company, grade_label, purchase_price, purchase_date
+            );
+        """)
+        conn.commit()
+        return conn.total_changes
+
+
+def clear_sample_collection_cards() -> int:
+    """Clears the pre-seeded template sample cards (dated 2026-08-29)."""
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM my_collection WHERE purchase_date = '2026-08-29';")
+        conn.commit()
+        return conn.total_changes
+
+
+def clear_entire_collection() -> int:
+    """Clears all cards in my_collection to allow a completely clean re-import."""
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM my_collection;")
+        conn.commit()
+        return conn.total_changes
+
 
 
 def parse_ebay_csv_history(csv_text_or_file: Any) -> List[Dict[str, Any]]:

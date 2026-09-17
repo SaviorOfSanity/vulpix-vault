@@ -8,6 +8,7 @@ import streamlit as st
 
 from db_utils import (
     clear_entire_collection,
+    clear_sample_collection_cards,
     get_db_path,
     get_master_set_metrics,
     get_portfolio_metrics,
@@ -15,6 +16,7 @@ from db_utils import (
     get_system_setting,
     load_collection_df,
     load_market_sales_df,
+    remove_collection_duplicates,
     run_system_benchmark,
     send_gotify_alert,
     set_system_setting,
@@ -185,4 +187,28 @@ with st.form("ebay_api_settings_form"):
             s_c4.metric("Watchlist / Bids", f"{stats.get('watch_count', 0)} / {stats.get('bid_count', 0)}")
         else:
             st.error(f"❌ {msg}")
+
+    st.markdown("---")
+    st.markdown("### 🗄️ Database & Collection Maintenance")
+    st.caption("Manage your local SQLite collection data, remove duplicate records, or reset sample data.")
+
+    m_col1, m_col2, m_col3 = st.columns(3)
+    with m_col1:
+        if st.button("🧹 Clean Duplicate Cards", help="Scans your collection and removes exact duplicate entries, keeping the earliest."):
+            n = remove_collection_duplicates()
+            st.success(f"Cleaned up {n} duplicate card records!")
+            st.rerun()
+
+    with m_col2:
+        if st.button("🗑️ Remove Sample Template Cards", help="Removes the 29 pre-seeded starter cards (dated Aug 29, 2026) so only your real cards remain."):
+            n = clear_sample_collection_cards()
+            st.success(f"Removed {n} sample template cards!")
+            st.rerun()
+
+    with m_col3:
+        if st.button("⚠️ Wipe Entire Collection", help="Deletes all cards from my_collection so you can do a fresh import."):
+            n = clear_entire_collection()
+            st.warning(f"Collection reset. Cleared {n} cards.")
+            st.rerun()
+
 
