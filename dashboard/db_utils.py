@@ -1609,28 +1609,35 @@ def parse_ebay_purchase_history_text(raw_text: str) -> List[Dict[str, Any]]:
         return []
 
     parsed_items = []
-    # Split text into order blocks by 'Delivered', 'Order date:', or multiple newlines
-    chunks = re.split(r'(?i)(?=order\s+date:|delivered\b|\border\s*#)', raw_text)
+    # Split text into order blocks by delivery/order markers or double newlines
+    chunks = re.split(r'(?i)(?=(?:delivered|shipped|paid|ordered|purchased)\s+(?:on|by)\b|order\s+date:)', raw_text)
+    if len(chunks) <= 1:
+        chunks = re.split(r'\n\s*\n', raw_text)
+
     for ch in chunks:
-        if not ch.strip() or len(ch.strip()) < 10:
+        ch_str = ch.strip()
+        if not ch_str or len(ch_str) < 10:
             continue
 
         # Extract price
-        price_match = re.search(r'(?:order\s+total:\s*)?(?:US\s*)?\$([0-9]+(?:\.[0-9]{2})?)', ch, re.IGNORECASE)
+        price_match = re.search(r'(?:paid|total|order\s+total|us)?\s*\$([0-9]+(?:\.[0-9]{2})?)', ch_str, re.IGNORECASE)
         price = float(price_match.group(1)) if price_match else 0.0
 
         # Extract date
-        date_match = re.search(r'(?:order\s+date:\s*)?([A-Za-z]{3,9}\s+[0-9]{1,2},?\s+[0-9]{4})', ch, re.IGNORECASE)
+        date_match = re.search(r'(?:(?:delivered|shipped|paid|ordered|purchased)\s+(?:on\s+)?(?:[A-Za-z]+,\s*)?|order\s+date:\s*)([A-Za-z]{3,9}\s+[0-9]{1,2},?\s+[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})', ch_str, re.IGNORECASE)
         date_str = datetime.today().strftime("%Y-%m-%d")
         if date_match:
-            try:
-                dt = datetime.strptime(date_match.group(1).replace(",", ""), "%b %d %Y")
-                date_str = dt.strftime("%Y-%m-%d")
-            except Exception:
-                pass
+            d_raw = date_match.group(1).replace(",", "").strip()
+            for d_fmt in ["%b %d %Y", "%B %d %Y", "%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"]:
+                try:
+                    dt = datetime.strptime(d_raw, d_fmt)
+                    date_str = dt.strftime("%Y-%m-%d")
+                    break
+                except Exception:
+                    pass
 
         # Extract order number
-        order_match = re.search(r'order\s*(?:number|#)?:\s*([0-9-]+)', ch, re.IGNORECASE)
+        order_match = re.search(r'order\s*(?:number|#)?[:\s]*([0-9]{2,}-[0-9]{4,}-[0-9]{4,}|[0-9]{10,})', ch_str, re.IGNORECASE)
         order_num = order_match.group(1) if order_match else ""
 
         # Extract title line containing card keywords
@@ -1762,6 +1769,95 @@ def bulk_import_ebay_history(items: List[Dict[str, Any]]) -> Tuple[int, str]:
     for it in items:
         add_card_to_collection(it)
         count += 1
+    return count, f"Successfully imported {count} card(s) into your Vault!"
+
+
+def parse_ebay_csv_history(csv_text_or_file: Any) -> List[Dict[str, Any]]:
+    """
+    Parses eBay Purchase History CSV export files (e.g. from My eBay -> Purchase History -> Download Report).
+    Extracts all Vulpix card purchases with title, set, grade, price, order date, and order ID.
+    """
+    import csv
+    import io
+
+    if hasattr(csv_text_or_file, "read"):
+        content = csv_text_or_file.read()
+        if isinstance(content, bytes):
+            try:
+                text = content.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                text = content.decode("latin-1", errors="replace")
+        else:
+            text = content
+    else:
+        text = str(csv_text_or_file)
+
+    if not text.strip():
+        return []
+
+    f = io.StringIO(text.strip())
+    reader = csv.reader(f)
+    header = None
+    rows = []
+    for r in reader:
+        if not r or not any(r):
+            continue
+        if header is None:
+            low_r = [c.lower().strip() for c in r]
+            if any(k in " ".join(low_r) for k in ["title", "item", "price", "order"]):
+                header = low_r
+                continue
+        if header and r:
+            # Pad or truncate row to header length
+            padded = r + [""] * (len(header) - len(r))
+            rows.append(dict(zip(header, padded[:len(header)])))
+
+    if not rows and not header:
+        return []
+
+    items = []
+    for row in rows:
+        title = ""
+        price = 0.0
+        date_str = datetime.today().strftime("%Y-%m-%d")
+        order_num = ""
+
+        for col, val in row.items():
+            col_l = col.lower()
+            val_s = str(val).strip()
+            if any(k in col_l for k in ["title", "item name", "description"]) and not title:
+                title = val_s
+            elif any(k in col_l for k in ["total price", "item price", "price", "amount", "paid"]) and price == 0.0:
+                p_m = re.search(r'([0-9]+(?:\.[0-9]{2})?)', val_s.replace("$", "").replace(",", ""))
+                if p_m:
+                    price = float(p_m.group(1))
+            elif any(k in col_l for k in ["order date", "sale date", "date", "transaction date"]) and val_s:
+                d_raw = val_s.split(" ")[0].replace(",", "").strip()
+                for fmt in ["%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%b %d %Y", "%B %d %Y", "%d-%b-%Y"]:
+                    try:
+                        dt = datetime.strptime(d_raw, fmt)
+                        date_str = dt.strftime("%Y-%m-%d")
+                        break
+                    except Exception:
+                        pass
+            elif any(k in col_l for k in ["order number", "order id", "item number", "item id", "sales record"]) and not order_num:
+                order_num = val_s
+
+        if title:
+            t_low = title.lower()
+            if any(kw in t_low for kw in ["vulpix", "rokon", "alolan vulpix"]) or ("pikachu" in t_low and "poncho" in t_low and "vulpix" in t_low):
+                parsed = parse_ebay_purchase_history_text(f"Delivered on {date_str}\n{title}\nPaid: ${price}\nOrder number: {order_num}")
+                if parsed:
+                    # Ensure date and order number are set
+                    for p in parsed:
+                        p["purchase_date"] = date_str
+                        if order_num:
+                            p["notes"] = f"Imported from eBay Order #{order_num}"
+                    items.extend(parsed)
+
+    return items
+
+
 def parse_ebay_link_to_card(url_or_id: str) -> Dict[str, Any]:
     """
     Parses any eBay listing link or Item ID into card details.

@@ -29,6 +29,7 @@ from db_utils import (
     get_system_setting,
     load_collection_df,
     load_master_catalog_df,
+    parse_ebay_csv_history,
     parse_ebay_link_to_card,
     parse_ebay_purchase_history_text,
     sync_ebay_user_account,
@@ -278,46 +279,61 @@ with imp_t3:
 
 # Tab 4: eBay Purchase History Raw Text
 with imp_t4:
-    st.markdown("Paste raw text copied directly from your eBay order history or confirmation email:")
+    st.markdown("📋 **Bulk Import 2026 Purchases from eBay Webpage or Emails:**")
+    st.caption("Since eBay's API restricts automated sync to the past 60 days, you can easily import your entire 2026 purchase history here in seconds! Go to [eBay Purchase History](https://www.ebay.com/mye/myebay/purchase), filter by **2026**, highlight your purchases (`Ctrl + A` or drag), copy (`Ctrl + C`), and paste below:")
     ebay_paste_text = st.text_area(
         "Paste eBay Order History Text",
-        placeholder="e.g.\nDelivered on Thu, Feb 19\n2019 POKEMON SUN & MOON ALOLAN VULPIX - HOLO GEM MT HIDDEN FATES PSA 10\nUS $45.05\nOrder number: 16-14228-18572",
-        height=120,
+        placeholder="e.g.\nDelivered on Thu, Feb 19, 2026\n2019 POKEMON SUN & MOON ALOLAN VULPIX - HOLO GEM MT HIDDEN FATES PSA 10 SV8/SV94\nPaid US $45.05\nOrder number: 16-14228-18572\n\nDelivered on Tue, Mar 10, 2026\nPokemon Card 151 Vulpix 037/165 Japanese CGC Pristine 10\nUS $58.50\nOrder # 08-77123-99412",
+        height=140,
         key="vault_ebay_paste_input",
     )
     if ebay_paste_text:
         parsed_ebay_items = parse_ebay_purchase_history_text(ebay_paste_text)
         if parsed_ebay_items:
-            st.markdown(f"**Found {len(parsed_ebay_items)} Card(s) in Text:**")
+            st.success(f"🎉 Detected {len(parsed_ebay_items)} Vulpix Card(s) in Pasted Text:")
             df_preview_ebay = pd.DataFrame(parsed_ebay_items)[["card_name", "set_name", "card_number", "grading_company", "grade_label", "purchase_price", "purchase_date", "language"]]
             st.dataframe(df_preview_ebay, use_container_width=True)
-            if st.button("🚀 Confirm Add All eBay Cards to Vault", key="btn_confirm_ebay_text_import"):
+            if st.button("🚀 Confirm Add All eBay Cards to Vault", key="btn_confirm_ebay_text_import", type="primary"):
                 cnt_eb, msg_eb = bulk_import_ebay_history(parsed_ebay_items)
-                st.success(msg_eb)
+                st.session_state["vault_flash_msg"] = msg_eb
                 st.rerun()
         else:
-            st.warning("Could not find card order patterns in the pasted text. Make sure the title and price lines are included.")
+            st.warning("Could not detect any Vulpix cards in the pasted text. Make sure card titles and prices are included.")
 
-# Tab 5: CSV Import
+# Tab 5: CSV Import (Template or eBay Report)
 with imp_t5:
-    st.markdown("Import cards from a CSV file directly into your Vault:")
+    st.markdown("📁 **Import from CSV File (Supports Starter Template or Official eBay Report):**")
+    st.caption("Upload your eBay Purchase History CSV report (downloaded from eBay) or our custom CSV template:")
     st.download_button(
         "📥 Download Starter CSV Template",
         data=get_csv_template_bytes(),
         file_name="vulpix_collection_starter_template.csv",
         mime="text/csv",
     )
-    col_csv_file = st.file_uploader("Upload Collection CSV", type=["csv"], key="vault_csv_uploader")
+    col_csv_file = st.file_uploader("Upload Collection or eBay CSV", type=["csv"], key="vault_csv_uploader")
     if col_csv_file is not None:
         try:
-            df_up_col = pd.read_csv(col_csv_file)
-            st.dataframe(df_up_col.head(3), use_container_width=True)
-            if st.button("🚀 Confirm Bulk Import into Vault"):
-                count_imp, msg_imp = bulk_import_collection_from_df(df_up_col)
-                st.success(msg_imp)
-                st.rerun()
+            content_bytes = col_csv_file.getvalue()
+            parsed_ebay_csv = parse_ebay_csv_history(content_bytes)
+            if parsed_ebay_csv:
+                st.success(f"🎉 Detected {len(parsed_ebay_csv)} Vulpix Card(s) in eBay Report CSV!")
+                df_csv_prev = pd.DataFrame(parsed_ebay_csv)[["card_name", "set_name", "card_number", "grading_company", "grade_label", "purchase_price", "purchase_date", "language"]]
+                st.dataframe(df_csv_prev, use_container_width=True)
+                if st.button("🚀 Confirm Import All Cards from eBay CSV to Vault", key="btn_confirm_ebay_csv_imp", type="primary"):
+                    cnt_c, msg_c = bulk_import_ebay_history(parsed_ebay_csv)
+                    st.session_state["vault_flash_msg"] = msg_c
+                    st.rerun()
+            else:
+                import io
+                df_up_col = pd.read_csv(io.BytesIO(content_bytes))
+                st.dataframe(df_up_col.head(5), use_container_width=True)
+                if st.button("🚀 Confirm Bulk Import into Vault", key="btn_confirm_std_csv_imp", type="primary"):
+                    count_imp, msg_imp = bulk_import_collection_from_df(df_up_col)
+                    st.session_state["vault_flash_msg"] = msg_imp
+                    st.rerun()
         except Exception as e:
             st.error(f"Error reading CSV: {e}")
+
 
 st.markdown("---")
 
