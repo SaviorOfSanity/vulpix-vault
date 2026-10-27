@@ -175,6 +175,11 @@ def init_db(db_path: Optional[str] = None) -> None:
             ("pop_total", "INTEGER DEFAULT 0"),
             ("pop_grade10", "INTEGER DEFAULT 0"),
             ("pop_pristine10", "INTEGER DEFAULT 0"),
+            ("pokecottage_id", "TEXT"),
+            ("pokecottage_url", "TEXT"),
+            ("tcgplayer_url", "TEXT"),
+            ("region", "TEXT DEFAULT 'International'"),
+            ("is_cameo", "INTEGER DEFAULT 0"),
         ]:
             _add_column_if_missing(cursor, "master_set_catalog", col, ctype)
 

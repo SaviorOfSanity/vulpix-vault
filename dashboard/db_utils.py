@@ -87,9 +87,9 @@ def normalize_edition_type(ed: str) -> str:
 
 
 def is_stamped_variant(ed: str) -> bool:
-    """Detects if an edition is a specific stamped release (calendar, event, store)."""
+    """Detects if an edition is a specific stamped release (calendar, event, store, league)."""
     s = (ed or "").lower()
-    return any(k in s for k in ["stamp", "calendar", "toys r us", "build-a-bear", "wcs"])
+    return any(k in s for k in ["stamp", "calendar", "toys r us", "build-a-bear", "wcs", "play!", "prize pack", "league", "staff"])
 
 
 def is_true_error(row: Any) -> bool:
@@ -156,8 +156,11 @@ def cards_match(col_card: Any, master_card: Any) -> bool:
 
     # 7. Direct ID match IF master_card_id is set
     mid = col_card.get("master_card_id")
-    if mid and pd.notna(mid) and int(mid) == master_card["id"]:
-        return True
+    if mid and pd.notna(mid):
+        try:
+            return int(mid) == int(master_card["id"])
+        except (ValueError, TypeError):
+            pass
 
     # Fallback Matching (when master_card_id is not set or not matching)
     # 8. Card number check
@@ -361,6 +364,11 @@ def ensure_tables_exist():
             ("pop_total", "INTEGER DEFAULT 0"),
             ("pop_grade10", "INTEGER DEFAULT 0"),
             ("pop_pristine10", "INTEGER DEFAULT 0"),
+            ("pokecottage_id", "TEXT"),
+            ("pokecottage_url", "TEXT"),
+            ("tcgplayer_url", "TEXT"),
+            ("region", "TEXT DEFAULT 'International'"),
+            ("is_cameo", "INTEGER DEFAULT 0"),
         ]:
             _add_column_if_missing(cursor, "master_set_catalog", col, ctype)
 
@@ -3786,3 +3794,13 @@ def populate_real_user_collection(clear_first: bool = True) -> Tuple[int, float]
 
     return count, round(total_val, 2)
 
+
+
+def sync_pokecottage_catalog() -> Tuple[bool, str]:
+    """Wraps scraper.pokecottage sync for one-click UI execution."""
+    try:
+        from scraper.pokecottage import sync_pokecottage_to_db
+        res = sync_pokecottage_to_db(get_db_path())
+        return res.get("success", False), res.get("message", "Sync complete.")
+    except Exception as e:
+        return False, f"PokeCottage sync failed: {str(e)}"

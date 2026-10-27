@@ -14,6 +14,7 @@ import streamlit as st
 from db_utils import (
     EDITION_OPTIONS,
     LANGUAGE_OPTIONS,
+    sync_pokecottage_catalog,
     add_card_to_collection,
     auto_enrich_master_catalog,
     download_all_card_images_locally,
@@ -67,28 +68,37 @@ st.markdown(
 )
 
 # Metadata Verification & Auto-Enrichment Banner
-en_col1, en_col2, en_col3 = st.columns([2, 1.2, 1.2])
+en_col1, en_col2, en_col3, en_col4 = st.columns([1.8, 1.1, 1.1, 1.2])
 with en_col1:
     st.markdown(
-        "💡 *Card name missing or showing wrong artwork? Click to resolve exact names and download verified official card scans directly to your local server.*"
+        "💡 *Sync with official PokeCottage Grand Master Set or download verified high-res scans directly to your local server.*"
     )
 with en_col2:
-    if st.button("✨ Auto-Enrich Names & Images", key="btn_auto_enrich_master", use_container_width=True):
+    if st.button("✨ Auto-Enrich Names", key="btn_auto_enrich_master", use_container_width=True):
         with st.spinner("Resolving card names and fetching official scans..."):
             cnt, msg = auto_enrich_master_catalog(force_all=True)
             st.success(msg)
             st.rerun()
 with en_col3:
-    if st.button("⚡ Cache Scans Locally", key="btn_download_images_local", use_container_width=True):
+    if st.button("⚡ Cache Scans", key="btn_download_images_local", use_container_width=True):
         with st.spinner("Downloading high-res images to server for instant offline loading..."):
             d_cnt, d_msg = download_all_card_images_locally()
             st.success(d_msg)
+            st.rerun()
+with en_col4:
+    if st.button("🏡 Sync PokeCottage", key="btn_sync_pokecottage", use_container_width=True):
+        with st.spinner("Fetching latest PokeCottage Grand Master Set checklist & scans..."):
+            s_ok, s_msg = sync_pokecottage_catalog()
+            if s_ok:
+                st.success(s_msg)
+            else:
+                st.warning(s_msg)
             st.rerun()
 
 # Filter Controls
 m_col1, m_col2, m_col3, m_col4 = st.columns(4)
 with m_col1:
-    m_view = st.selectbox("Status Filter", ["All Master Cards", "❌ Missing Cards Only", "✅ Owned Cards Only", "🥇 1st Edition Only", "💎 Low Pop (<20 PSA 10)", "⚠️ Error Cards Only"])
+    m_view = st.selectbox("Status Filter", ["All Master Cards", "❌ Missing Cards Only", "✅ Owned Cards Only", "🌐 International Cards", "🇯🇵 Japan Releases", "🇨🇳 China Releases", "🥇 1st Edition Only", "💎 Low Pop (<20 PSA 10)", "⚠️ Error Cards Only"])
 with m_col2:
     m_langs = ["All Languages"] + sorted(df_master["language"].dropna().unique().tolist())
     m_sel_lang = st.selectbox("Language Filter", m_langs)
@@ -104,6 +114,12 @@ if m_view == "❌ Missing Cards Only":
     filtered_master = filtered_master[~filtered_master["is_owned"]]
 elif m_view == "✅ Owned Cards Only":
     filtered_master = filtered_master[filtered_master["is_owned"]]
+elif m_view == "🌐 International Cards":
+    filtered_master = filtered_master[filtered_master["region"].fillna("International").str.contains("International|All|USA|Europe", case=False, na=False)]
+elif m_view == "🇯🇵 Japan Releases":
+    filtered_master = filtered_master[filtered_master["region"].fillna("").str.contains("Japan", case=False, na=False) | (filtered_master["language"] == "Japanese")]
+elif m_view == "🇨🇳 China Releases":
+    filtered_master = filtered_master[filtered_master["region"].fillna("").str.contains("China", case=False, na=False) | (filtered_master["language"].str.contains("Chinese", case=False, na=False))]
 elif m_view == "🥇 1st Edition Only":
     filtered_master = filtered_master[filtered_master["edition"].str.contains("1st", case=False, na=False)]
 elif m_view == "💎 Low Pop (<20 PSA 10)":
@@ -268,13 +284,16 @@ if "Consolidated" in master_view_mode:
                     )
                     pc_url = var["pricecharting_url"] or get_pricecharting_search_url(var["card_name"], var["set_name"], var["card_number"])
 
-                    b_c1, b_c2, b_c3 = st.columns(3)
+                    pc_cottage_url = var.get("pokecottage_url") or "https://pokecottage.com/pokemon-master-sets/vulpix"
+                    b_c1, b_c2, b_c3, b_c4 = st.columns(4)
                     with b_c1:
-                        st.markdown(f'<a href="{raw_ebay_url}" target="_blank" class="btn-ebay" style="display: block; text-align: center; font-size: 0.7rem; padding: 3px;">🔍 Raw</a>', unsafe_allow_html=True)
+                        st.markdown(f'<a href="{raw_ebay_url}" target="_blank" class="btn-ebay" style="display: block; text-align: center; font-size: 0.68rem; padding: 3px;">🔍 Raw</a>', unsafe_allow_html=True)
                     with b_c2:
-                        st.markdown(f'<a href="{g10_ebay_url}" target="_blank" class="btn-ebay" style="display: block; text-align: center; font-size: 0.7rem; padding: 3px; background: linear-gradient(135deg, #f59e0b, #d97706);">💎 PSA 10</a>', unsafe_allow_html=True)
+                        st.markdown(f'<a href="{g10_ebay_url}" target="_blank" class="btn-ebay" style="display: block; text-align: center; font-size: 0.68rem; padding: 3px; background: linear-gradient(135deg, #f59e0b, #d97706);">💎 PSA 10</a>', unsafe_allow_html=True)
                     with b_c3:
-                        st.markdown(f'<a href="{pc_url}" target="_blank" class="btn-pc" style="display: block; text-align: center; font-size: 0.7rem; padding: 3px;">📊 Comps</a>', unsafe_allow_html=True)
+                        st.markdown(f'<a href="{pc_url}" target="_blank" class="btn-pc" style="display: block; text-align: center; font-size: 0.68rem; padding: 3px;">📊 Comps</a>', unsafe_allow_html=True)
+                    with b_c4:
+                        st.markdown(f'<a href="{pc_cottage_url}" target="_blank" style="display: block; text-align: center; font-size: 0.68rem; padding: 3px; background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; border-radius: 6px; text-decoration: none; font-weight: 700;">🏡 Cottage</a>', unsafe_allow_html=True)
 
                     if var_owned:
                         if st.button("❌ Remove from Vault", key=f"mat_unmark_{var['id']}", type="secondary"):
@@ -369,13 +388,16 @@ elif "Card Grid" in master_view_mode:
             )
             pc_url = row.get("pricecharting_url") or get_pricecharting_search_url(row["card_name"], row["set_name"], row["card_number"])
 
+            pc_cottage_grid_url = row.get("pokecottage_url") or "https://pokecottage.com/pokemon-master-sets/vulpix"
+            reg_val = str(row.get("region") or "International")
+            reg_icon = "🇯🇵" if "japan" in reg_val.lower() else ("🇨🇳" if "china" in reg_val.lower() else "🌐")
             card_num_display = f"#{row['card_number']}" if row['card_number'] and str(row['card_number']).lower() != "nan" else "(Promo / No #)"
             est_raw_display = f"${row['est_raw_price']:,.2f}" if row['est_raw_price'] > 0 else '<span style="color: #64748b; font-style: italic;">—</span>'
             est_g10_display = f"${row['est_grade10_price']:,.2f}" if row['est_grade10_price'] > 0 else '<span style="color: #64748b; font-style: italic;">—</span>'
 
             master_card_html = f"""<div class="slab-box" style="padding: 12px; margin-bottom: 14px;">
 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
-<div style="font-size: 0.78rem; font-weight: 700; color: #94a3b8;">{row['release_year']} • {row['language']}</div>
+<div style="font-size: 0.78rem; font-weight: 700; color: #94a3b8;">{reg_icon} {row['release_year']} • {row['language']}</div>
 <div style="display: flex; gap: 3px; align-items: center; flex-wrap: wrap;">{ed_badge} {err_badge} {status_badge}</div>
 </div>
 <div style="text-align: center; margin: 8px 0;">
@@ -397,14 +419,17 @@ elif "Card Grid" in master_view_mode:
 </div>
 </div>
 <div style="display: flex; gap: 4px; margin-bottom: 4px;">
-<a href="{raw_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 3px;">
+<a href="{raw_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.68rem; padding: 3px;">
 🔍 Raw
 </a>
-<a href="{g10_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 3px; background: linear-gradient(135deg, #f59e0b, #d97706);">
+<a href="{g10_ebay_url}" target="_blank" class="btn-ebay" style="flex: 1; text-align: center; font-size: 0.68rem; padding: 3px; background: linear-gradient(135deg, #f59e0b, #d97706);">
 💎 PSA 10
 </a>
-<a href="{pc_url}" target="_blank" class="btn-pc" style="flex: 1; text-align: center; font-size: 0.72rem; padding: 3px;">
-📊 Charting
+<a href="{pc_url}" target="_blank" class="btn-pc" style="flex: 1; text-align: center; font-size: 0.68rem; padding: 3px;">
+📊 Comps
+</a>
+<a href="{pc_cottage_grid_url}" target="_blank" style="flex: 1; text-align: center; font-size: 0.68rem; padding: 3px; background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; border-radius: 6px; text-decoration: none; font-weight: 700;">
+🏡 Cottage
 </a>
 </div>
 </div>"""
