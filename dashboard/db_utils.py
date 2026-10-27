@@ -400,12 +400,23 @@ def ensure_tables_exist():
 def _seed_master_cards_if_missing(cursor: sqlite3.Cursor):
     """Ensures authentic niche & promo cards from the real collection exist in master_set_catalog."""
     # Ensure Japanese 151 has both Poke Ball Reverse Holo and Master Ball Reverse Holo
-    cursor.execute("""
-        UPDATE master_set_catalog
-        SET edition = 'Poke Ball Reverse Holo',
-            notes = 'Poke Ball Reverse Holo pattern'
-        WHERE card_name = 'Vulpix' AND set_name LIKE '%151%' AND language = 'Japanese' AND edition = 'Reverse Holo';
-    """)
+    try:
+        cursor.execute("""
+            UPDATE OR IGNORE master_set_catalog
+            SET edition = 'Poke Ball Reverse Holo',
+                notes = 'Poke Ball Reverse Holo pattern'
+            WHERE card_name = 'Vulpix' AND set_name LIKE '%151%' AND language = 'Japanese' AND edition = 'Reverse Holo';
+        """)
+        cursor.execute("""
+            DELETE FROM master_set_catalog
+            WHERE card_name = 'Vulpix' AND set_name LIKE '%151%' AND language = 'Japanese' AND edition = 'Reverse Holo'
+              AND EXISTS (
+                  SELECT 1 FROM master_set_catalog m2
+                  WHERE m2.card_name = 'Vulpix' AND m2.set_name LIKE '%151%' AND m2.language = 'Japanese' AND m2.edition = 'Poke Ball Reverse Holo'
+              );
+        """)
+    except Exception:
+        pass
 
     cursor.execute("""
         UPDATE my_collection
@@ -502,7 +513,7 @@ def _seed_master_cards_if_missing(cursor: sqlite3.Cursor):
         existing = cursor.fetchone()
         if not existing:
             cursor.execute("""
-                INSERT INTO master_set_catalog (
+                INSERT OR IGNORE INTO master_set_catalog (
                     card_name, set_name, card_number, release_year, language,
                     edition, rarity, is_error, error_description,
                     est_raw_price, est_grade10_price, image_url, notes
@@ -1725,7 +1736,7 @@ def bulk_upsert_master_catalog(cards: List[Dict[str, Any]]) -> int:
                 "notes": str(card.get("notes", "")).strip(),
             }
             cursor.execute("""
-                INSERT INTO master_set_catalog (
+                INSERT OR IGNORE INTO master_set_catalog (
                     card_name, set_name, card_number, release_year,
                     language, edition, rarity, is_error, error_description,
                     est_raw_price, est_grade10_price, pricecharting_url,
