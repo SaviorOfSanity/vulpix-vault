@@ -572,10 +572,24 @@ def render_header():
 
 
 def get_edition_badge_html(edition: str) -> str:
-    """Returns styled HTML badge for 1st Edition, Shadowless, Rainbow Rare, Art Rare, SAR, etc."""
-    ed_lower = str(edition).lower()
+    """Returns styled HTML badge for 1st Edition, Unlimited, W-Stamp, Shadowless, Rainbow Rare, Art Rare, SAR, etc."""
+    ed_lower = str(edition or "").lower().strip()
+    if not ed_lower or ed_lower in ("none", "nan", "standard"):
+        return '<span style="background: rgba(148, 163, 184, 0.12); border: 1px solid #475569; color: #94a3b8; padding: 2px 7px; border-radius: 10px; font-weight: 700; font-size: 0.68rem; letter-spacing: 0.5px;">UNLIMITED</span>'
     if "1st" in ed_lower or "first" in ed_lower:
         return '<span style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.25)); border: 1px solid #f59e0b; color: #fbbf24; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem; letter-spacing: 0.5px;">🥇 1ST EDITION</span>'
+    if "w-stamp" in ed_lower or "wotc" in ed_lower or "w stamp" in ed_lower:
+        return '<span style="background: linear-gradient(135deg, rgba(217, 119, 6, 0.3), rgba(180, 83, 9, 0.3)); border: 1px solid #f59e0b; color: #fde047; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem; letter-spacing: 0.5px;">🃏 W-STAMP PROMO</span>'
+    if "error" in ed_lower or "corrected" in ed_lower or "misprint" in ed_lower:
+        return '<span style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem;">⚠️ ERROR CARD</span>'
+    if "no rarity" in ed_lower:
+        return '<span style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(245, 158, 11, 0.25)); border: 1px solid #f97316; color: #fdba74; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem;">⭐ NO RARITY</span>'
+    if "master ball" in ed_lower:
+        return '<span style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(236, 72, 153, 0.25)); border: 1px solid #c084fc; color: #f5d0fe; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem;">🔮 MASTER BALL</span>'
+    if "poke ball" in ed_lower or "pokeball" in ed_lower:
+        return '<span style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem;">🔴 POKÉ BALL</span>'
+    if "world" in ed_lower or "championship" in ed_lower:
+        return '<span style="background: rgba(34, 197, 94, 0.2); border: 1px solid #22c55e; color: #86efac; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem;">🏆 WORLDS DECK</span>'
     if "rainbow" in ed_lower or "hr" in ed_lower:
         return '<span style="background: linear-gradient(135deg, rgba(236,72,153,0.3), rgba(59,130,246,0.3), rgba(234,179,8,0.3)); border: 1px solid #ec4899; color: #fbcfe8; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 0.72rem;">🌈 RAINBOW RARE</span>'
     if "special art rare" in ed_lower or "sar" in ed_lower:
@@ -596,7 +610,33 @@ def get_edition_badge_html(edition: str) -> str:
         return '<span style="background: rgba(234, 179, 8, 0.2); border: 1px solid #eab308; color: #fef08a; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">🃏 PLAYING CARD</span>'
     if "4th print" in ed_lower or "1999-2000" in ed_lower:
         return '<span style="background: rgba(20, 184, 166, 0.2); border: 1px solid #14b8a6; color: #2dd4bf; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">UK / 4TH PRINT</span>'
-    return ""
+    if "unlimited" in ed_lower:
+        return '<span style="background: rgba(148, 163, 184, 0.12); border: 1px solid #475569; color: #94a3b8; padding: 2px 7px; border-radius: 10px; font-weight: 700; font-size: 0.68rem; letter-spacing: 0.5px;">UNLIMITED</span>'
+    return f'<span style="background: rgba(148, 163, 184, 0.12); border: 1px solid #475569; color: #cbd5e1; padding: 2px 7px; border-radius: 10px; font-weight: 700; font-size: 0.68rem;">{edition.upper()}</span>'
+
+
+def get_variant_graphic_badge_html(finish: str, edition: str) -> str:
+    """Returns a prominent graphical badge pill for card finish / variation in showcase modals."""
+    combined = f"{finish or ''} {edition or ''}".lower()
+    if "1st" in combined or "first" in combined:
+        return '<span style="display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.3)); border: 1px solid #f59e0b; color: #fbbf24; padding: 4px 12px; border-radius: 16px; font-weight: 800; font-size: 0.85rem; letter-spacing: 0.5px;">🥇 1st Edition</span>'
+    if "w-stamp" in combined or "wotc" in combined:
+        return '<span style="display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(135deg, rgba(217, 119, 6, 0.3), rgba(180, 83, 9, 0.35)); border: 1px solid #f59e0b; color: #fde047; padding: 4px 12px; border-radius: 16px; font-weight: 800; font-size: 0.85rem; letter-spacing: 0.5px;">🃏 Wizards W-Stamp Promo</span>'
+    if "master ball" in combined:
+        return '<span style="display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(135deg, rgba(168, 85, 247, 0.3), rgba(236, 72, 153, 0.3)); border: 1px solid #c084fc; color: #f5d0fe; padding: 4px 12px; border-radius: 16px; font-weight: 800; font-size: 0.85rem;">🔮 Master Ball Mirror Holo</span>'
+    if "poke ball" in combined or "pokeball" in combined:
+        return '<span style="display: inline-flex; align-items: center; gap: 6px; background: rgba(239, 68, 68, 0.25); border: 1px solid #ef4444; color: #fca5a5; padding: 4px 12px; border-radius: 16px; font-weight: 800; font-size: 0.85rem;">🔴 Poké Ball Mirror Holo</span>'
+    if "rainbow" in combined:
+        return '<span style="display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(135deg, rgba(236,72,153,0.35), rgba(59,130,246,0.35), rgba(234,179,8,0.35)); border: 1px solid #ec4899; color: #fbcfe8; padding: 4px 12px; border-radius: 16px; font-weight: 800; font-size: 0.85rem;">🌈 Rainbow Secret Rare</span>'
+    if "reverse" in combined:
+        return '<span style="display: inline-flex; align-items: center; gap: 6px; background: rgba(59, 130, 246, 0.25); border: 1px solid #3b82f6; color: #93c5fd; padding: 4px 12px; border-radius: 16px; font-weight: 800; font-size: 0.85rem;">🔄 Reverse Holofoil</span>'
+    if "holo" in combined:
+        return '<span style="display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(135deg, rgba(234, 179, 8, 0.25), rgba(245, 158, 11, 0.25)); border: 1px solid #eab308; color: #fde047; padding: 4px 12px; border-radius: 16px; font-weight: 800; font-size: 0.85rem;">✨ Holofoil</span>'
+    if "no rarity" in combined:
+        return '<span style="display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(245, 158, 11, 0.25)); border: 1px solid #f97316; color: #fdba74; padding: 4px 12px; border-radius: 16px; font-weight: 800; font-size: 0.85rem;">⭐ No Rarity Symbol (1996)</span>'
+    if "error" in combined or "misprint" in combined:
+        return '<span style="display: inline-flex; align-items: center; gap: 6px; background: rgba(239, 68, 68, 0.25); border: 1px solid #ef4444; color: #fca5a5; padding: 4px 12px; border-radius: 16px; font-weight: 800; font-size: 0.85rem;">⚠️ Error / Misprint</span>'
+    return '<span style="display: inline-flex; align-items: center; gap: 6px; background: rgba(148, 163, 184, 0.15); border: 1px solid #64748b; color: #cbd5e1; padding: 4px 12px; border-radius: 16px; font-weight: 700; font-size: 0.85rem;">📄 Standard Non-Holo</span>'
 
 
 def get_pop_badge_html(pop_grade10: int, pop_pristine10: int = 0) -> str:

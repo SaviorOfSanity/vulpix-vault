@@ -547,17 +547,22 @@ def ensure_tables_exist():
             WHERE set_name LIKE '%Neo Destiny%' AND card_number LIKE '%90%';
         """)
 
-        # Ensure all cameo cards are accurately flagged with is_cameo = 1
+        # Ensure cameo cards are flagged, but EXCLUDE Poncho cards per user requirement
         cursor.execute("""
             UPDATE master_set_catalog 
             SET is_cameo = 1
-            WHERE card_name LIKE '%cameo%'
+            WHERE (card_name LIKE '%cameo%'
                OR notes LIKE '%cameo%'
                OR card_name LIKE '%pikachu%'
-               OR card_name LIKE '%poncho%'
                OR set_name LIKE '%Rumble%'
                OR set_name LIKE '%Scramble%'
-               OR card_name NOT LIKE '%vulpix%';
+               OR card_name NOT LIKE '%vulpix%')
+              AND card_name NOT LIKE '%Poncho%';
+        """)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET is_cameo = 0 
+            WHERE card_name LIKE '%Poncho%';
         """)
 # Enrich artist & finish from pokecottage_vulpix.json if available
         try:
@@ -727,6 +732,55 @@ def ensure_tables_exist():
             SET image_url = 'dashboard/static/cards/vulpix-expansion-pack-no-015.jpg',
                 artist = 'Ken Sugimori'
             WHERE set_name LIKE '%Japanese%Base%' OR set_name = 'Expansion Pack';
+        ''')
+
+        # Fix Brock's Vulpix, Blaine's Vulpix, Darkness and to Light, and corrupted variants
+        cursor.execute("DELETE FROM master_set_catalog WHERE id = 327;")
+        cursor.execute('''
+            UPDATE OR IGNORE master_set_catalog 
+            SET edition = 'W-Stamp Promo',
+                finish = 'W-Stamp',
+                is_error = 0,
+                notes = 'Distributed in August 2000 with TopDeck Magazine (Issue #9) featuring a gold foil Wizards W-stamp.'
+            WHERE id = 326 OR (set_name = 'Gym Challenge' AND pokecottage_id = '37-gym2-37-wotcStamp');
+        ''')
+        cursor.execute('''
+            UPDATE OR IGNORE master_set_catalog 
+            SET edition = '1st Edition',
+                finish = '1st Edition',
+                notes = 'Gym Challenge 1st Edition printing (October 2000).'
+            WHERE id = 325 OR (set_name = 'Gym Challenge' AND pokecottage_id = '37-gym2-37-firstEdition');
+        ''')
+        cursor.execute('''
+            UPDATE OR IGNORE master_set_catalog 
+            SET edition = 'Unlimited',
+                finish = 'Standard',
+                notes = 'Gym Challenge Unlimited printing (Late 2000).'
+            WHERE id = 707 OR (set_name = 'Gym Challenge' AND pokecottage_id = '37-gym2-37-normal');
+        ''')
+        cursor.execute("UPDATE OR IGNORE master_set_catalog SET edition = 'Unlimited', finish = 'Standard', notes = 'Gym Heroes Unlimited printing.' WHERE id = 317 OR pokecottage_id = '37-gym1-65-normal';")
+        cursor.execute("UPDATE OR IGNORE master_set_catalog SET edition = 'Unlimited', finish = 'Standard', notes = 'Gym Heroes Unlimited printing.' WHERE id = 322 OR pokecottage_id = '37-gym1-73-normal';")
+        cursor.execute("UPDATE OR IGNORE master_set_catalog SET edition = 'Unlimited', finish = 'Standard', notes = 'Gym Challenge Unlimited printing.' WHERE id = 329 OR pokecottage_id = '37-gym2-66-normal';")
+        cursor.execute("UPDATE OR IGNORE master_set_catalog SET edition = 'World Championships 2017', finish = 'World Championships Deck', notes = '2017 World Championships Diego Cassiraga Deck.' WHERE id = 461;")
+        cursor.execute("UPDATE OR IGNORE master_set_catalog SET edition = 'Rainbow Rare', finish = 'Rainbow Holo', is_error = 0, notes = 'Silver Tempest Secret Rare Rainbow Holo #197/195.' WHERE id = 504;")
+        cursor.execute('''
+            UPDATE OR IGNORE master_set_catalog 
+            SET card_name = 'Light Vulpix',
+                card_number = 'No. 037',
+                release_year = 2001,
+                artist = 'Masako Yamashita',
+                est_raw_price = 8.0,
+                est_grade10_price = 95.0,
+                pricecharting_raw = 8.0,
+                pricecharting_grade10 = 95.0,
+                image_url = 'dashboard/static/cards/vulpix-darkness-and-to-light-no-014.jpg',
+                notes = 'Japanese Neo 4 Darkness, and to Light... (2001) illustrated by Masako Yamashita.'
+            WHERE id = 334 OR (set_name LIKE '%Darkness%' AND language = 'Japanese' AND (card_number IS NULL OR card_number = '' OR card_number = 'No. 037' OR card_number = '015/102'));
+        ''')
+        cursor.execute('''
+            UPDATE master_set_catalog
+            SET notes = TRIM(REPLACE(notes, 'Variant:', ''))
+            WHERE notes LIKE 'Variant:%';
         ''')
 
 

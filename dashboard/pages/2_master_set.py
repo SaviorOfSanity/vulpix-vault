@@ -36,6 +36,7 @@ from styles import (
     clean_html,
     get_edition_badge_html,
     get_pop_badge_html,
+    get_variant_graphic_badge_html,
     render_header,
 )
 
@@ -43,7 +44,7 @@ apply_custom_styles()
 render_header()
 
 # Clear any legacy inspect URL query parameter immediately so it never forces modal open on page load
-if "inspect" in getattr(st, "query_params", {}):
+if "inspect" in st.query_params:
     try:
         del st.query_params["inspect"]
     except Exception:
@@ -61,9 +62,9 @@ with c_top_title:
     st.markdown("### 📜 Vulpix Master Set Checklist & Catalog")
 with c_top_opt:
     exclude_cameos = st.checkbox(
-        "🚫 Exclude Cameo Cards (Pikachu/Cameos)",
+        "🚫 Exclude Background Cameos Only (Rumble / Sapporo Pikachu)",
         value=True,
-        help="When checked, non-Vulpix cards that only feature Vulpix in the background/cameo (e.g. Poncho Pikachu, Sapporo's Pikachu, Pokémon Rumble) are hidden and excluded from Master Set completion statistics.",
+        help="When checked, non-Vulpix cards where Vulpix only appears as a small background cameo (e.g. Rumble Pikachu, Sapporo Pikachu) are hidden. Costume cards like Poncho-wearing Pikachu remain included in your core collection.",
         key="exclude_cameos_toggle"
     )
 
@@ -87,80 +88,96 @@ try:
     unique_printings = df_count_base.groupby(["card_name", "set_name", "card_number"]).ngroups
 except Exception:
     unique_printings = len(df_count_base)
+
+try:
+    owned_unique_count = df_count_base[df_count_base["is_owned"]].groupby(["card_name", "set_name", "card_number"]).ngroups
+except Exception:
+    owned_unique_count = int(master_metrics.get("owned_cards", 0))
+
+owned_total_count = int(master_metrics.get("owned_cards", 0))
+unique_pct = round(100.0 * owned_unique_count / max(1, unique_printings), 1)
 additional_variants = max(0, len(df_count_base) - unique_printings)
 total_master_count = len(df_count_base)
 
 # =========================================================
 # Editorial Header & Valuation Breakdown (Obsidian & Gold)
 # =========================================================
-cameo_sub_badge = ' <span style="font-size: 0.74rem; font-weight: 600; color: #94a3b8; background: #1a202c; padding: 2px 8px; border-radius: 6px; border: 1px solid #2d3748;">Cameos Excluded</span>' if exclude_cameos else ""
+cameo_sub_badge = ' <span style="font-size: 0.74rem; font-weight: 600; color: #94a3b8; background: #1a202c; padding: 2px 8px; border-radius: 6px; border: 1px solid #2d3748;">Background Cameos Excluded</span>' if exclude_cameos else ""
 
 hero_html = clean_html(f"""
 <div class="cottage-hero">
-    <h2 class="cottage-hero-title">Vulpix Master Set Card Count</h2>
+    <h2 class="cottage-hero-title">Vulpix Master Set Collection Progress</h2>
     <div class="cottage-stats-grid">
+        <div class="cottage-stat-item" style="border: 1px solid rgba(16, 185, 129, 0.5); background: rgba(16, 185, 129, 0.08);">
+            <div class="cottage-stat-label" style="color: #6ee7b7;">VAULT PROGRESS</div>
+            <div class="cottage-stat-val" style="color: #34d399;">{owned_unique_count} / {unique_printings} Cards</div>
+        </div>
+        <div class="cottage-stat-item">
+            <div class="cottage-stat-label">TOTAL VARIATIONS</div>
+            <div class="cottage-stat-val">{owned_total_count} / {total_master_count} Cards</div>
+        </div>
         <div class="cottage-stat-item"><div class="cottage-stat-label">ENGLISH</div><div class="cottage-stat-val">{english_count} cards</div></div>
         <div class="cottage-stat-item"><div class="cottage-stat-label">JAPANESE</div><div class="cottage-stat-val">{japanese_count} cards</div></div>
         <div class="cottage-stat-item"><div class="cottage-stat-label">S. CHINESE</div><div class="cottage-stat-val">{chinese_count} cards</div></div>
         <div class="cottage-stat-item"><div class="cottage-stat-label">PROMOS</div><div class="cottage-stat-val">{promo_count} cards</div></div>
-        <div class="cottage-stat-item"><div class="cottage-stat-label">UNIQUE PRINTINGS</div><div class="cottage-stat-val">{unique_printings} cards</div></div>
-        <div class="cottage-stat-item"><div class="cottage-stat-label">ADDITIONAL VARIANTS</div><div class="cottage-stat-val">{additional_variants} cards</div></div>
     </div>
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-size: 1.25rem; font-weight: 700; color: #f8fafc;">Master Set Progress{cameo_sub_badge}</div>
-        <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-size: 1.5rem; font-weight: 700; color: #10b981;">{master_metrics['completion_pct']}%</div>
+        <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-size: 1.25rem; font-weight: 700; color: #f8fafc;">
+            Master Set Progress: <span style="color: #34d399;">{owned_unique_count} / {unique_printings} Unique Cards ({unique_pct}%)</span>{cameo_sub_badge}
+        </div>
+        <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-size: 1.4rem; font-weight: 700; color: #10b981;">{unique_pct}%</div>
     </div>
-    <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: {master_metrics['completion_pct']}%;"></div></div>
+    <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: {unique_pct}%;"></div></div>
     <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #94a3b8; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
-        <span>Owned: <strong style="color: #f8fafc;">{master_metrics['owned_cards']}</strong> / {master_metrics['total_cards']} Unique</span>
+        <span>Unique Cards Owned: <strong style="color: #34d399;">{owned_unique_count}</strong> / {unique_printings} ({unique_pct}%)</span>
+        <span>Total Variations Owned: <strong style="color: #fbbf24;">{owned_total_count}</strong> / {total_master_count} ({master_metrics['completion_pct']}%)</span>
         <span>Missing: <strong style="color: #f87171;">{master_metrics['missing_cards']}</strong> cards</span>
-        <span>Est. Raw Finish Cost: <strong style="color: #fbbf24;">${master_metrics['cost_to_complete_raw']:,.2f}</strong></span>
-        <span>Est. Grade 10 Finish Cost: <strong style="color: #f59e0b;">${master_metrics['cost_to_complete_grade10']:,.2f}</strong></span>
-        <span>Total Value: <strong style="color: #34d399;">${master_metrics['total_raw_value']:,.2f} Raw</strong> • <strong style="color: #fbbf24;">${master_metrics['total_grade10_value']:,.2f} PSA 10</strong></span>
+        <span>Est. Cost to Complete: <strong style="color: #fbbf24;">${master_metrics['cost_to_complete_raw']:,.2f} Raw</strong> • <strong style="color: #f59e0b;">${master_metrics['cost_to_complete_grade10']:,.2f} PSA 10</strong></span>
+        <span>Total Vault Value: <strong style="color: #34d399;">${master_metrics['total_raw_value']:,.2f} Raw</strong> • <strong style="color: #fbbf24;">${master_metrics['total_grade10_value']:,.2f} PSA 10</strong></span>
     </div>
-    <div style="margin-top: 24px;">
+    <div style="margin-top: 20px;">
         <div class="cottage-oval-banner">
             <span>How Many Cards Are in the Vulpix Master Set?</span>
-            <span class="cottage-oval-pill">{total_master_count} cards</span>
+            <span class="cottage-oval-pill">{total_master_count} Variations ({unique_printings} Unique Printings)</span>
         </div>
     </div>
 </div>
 """)
 st.markdown(hero_html, unsafe_allow_html=True)
 
-# Metadata Verification & Auto-Enrichment Controls
-en_col1, en_col2, en_col3, en_col4 = st.columns([1.8, 1.1, 1.1, 1.2])
-with en_col1:
-    st.markdown(
-        "💡 *Sync with official PokeCottage Grand Master Set or download verified high-res scans directly to your local server.*"
-    )
-with en_col2:
-    if st.button("✨ Auto-Enrich Names", key="btn_auto_enrich_master", use_container_width=True):
-        with st.spinner("Resolving card names and fetching official scans..."):
-            cnt, msg = auto_enrich_master_catalog(force_all=True)
-            st.success(msg)
-            st.rerun()
-with en_col3:
-    if st.button("⚡ Cache Scans", key="btn_download_images_local", use_container_width=True):
-        with st.spinner("Downloading high-res images to server for instant offline loading..."):
-            d_cnt, d_msg = download_all_card_images_locally()
-            st.success(d_msg)
-            st.rerun()
-with en_col4:
-    if st.button("🏡 Sync PokeCottage", key="btn_sync_pokecottage", use_container_width=True):
-        with st.spinner("Fetching latest PokeCottage Grand Master Set checklist & scans..."):
-            s_ok, s_msg = sync_pokecottage_catalog()
-            if s_ok:
-                st.success(s_msg)
-            else:
-                st.warning(s_msg)
-            st.rerun()
+# Admin & Sync Tools in a clean, non-intrusive collapsed expander
+with st.expander("⚙️ Catalog Management & Offline Scans", expanded=False):
+    st.markdown("💡 *Synchronize with the official PokeCottage Grand Master Set or download verified high-res scans for instant offline browsing.*")
+    ac1, ac2, ac3 = st.columns(3)
+    with ac1:
+        if st.button("✨ Auto-Enrich Names", key="btn_auto_enrich_master", use_container_width=True):
+            with st.spinner("Resolving card names and fetching official scans..."):
+                cnt, msg = auto_enrich_master_catalog(force_all=True)
+                st.success(msg)
+                st.rerun()
+    with ac2:
+        if st.button("⚡ Cache Scans Locally", key="btn_download_images_local", use_container_width=True):
+            with st.spinner("Downloading high-res images to server for instant offline loading..."):
+                d_cnt, d_msg = download_all_card_images_locally()
+                st.success(d_msg)
+                st.rerun()
+    with ac3:
+        if st.button("🏡 Sync PokeCottage", key="btn_sync_pokecottage", use_container_width=True):
+            with st.spinner("Fetching latest PokeCottage Grand Master Set checklist & scans..."):
+                s_ok, s_msg = sync_pokecottage_catalog()
+                if s_ok:
+                    st.success(s_msg)
+                else:
+                    st.warning(s_msg)
+                st.rerun()
 
 # =========================================================
-# Filter Controls
+# Streamlined Filter Controls Bar
 # =========================================================
-m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-with m_col1:
+f_col1, f_col2, f_col3, f_col4 = st.columns([1.8, 1.2, 1.2, 1.2])
+with f_col1:
+    m_search = st.text_input("Search Cards", placeholder="🔍 Search card name, set, or #...", label_visibility="collapsed")
+with f_col2:
     m_view = st.selectbox(
         "Status Filter",
         [
@@ -175,15 +192,14 @@ with m_col1:
             "⚠️ Error Cards Only",
             "🎭 Cameo Cards Only",
         ],
+        label_visibility="collapsed"
     )
-with m_col2:
+with f_col3:
     m_langs = ["All Languages"] + sorted(df_master["language"].dropna().unique().tolist())
-    m_sel_lang = st.selectbox("Language Filter", m_langs)
-with m_col3:
+    m_sel_lang = st.selectbox("Language Filter", m_langs, label_visibility="collapsed")
+with f_col4:
     m_eds = ["All Editions"] + sorted(df_master["edition"].dropna().unique().tolist())
-    m_sel_ed = st.selectbox("Edition Filter", m_eds)
-with m_col4:
-    m_search = st.text_input("Search Set or Card Name", placeholder="e.g. Neo Destiny, Blaine, CoroCoro...")
+    m_sel_ed = st.selectbox("Edition Filter", m_eds, label_visibility="collapsed")
 
 # Apply Filters
 filtered_master = df_master.copy()
@@ -297,21 +313,23 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
         else:
             st.caption("Last Card")
 
-    # Sanitize artist name (prevent 'nan')
+    # Sanitize artist name
     artist_raw = str(row.get("artist") or "").strip()
     if not artist_raw or artist_raw.lower() in ("nan", "none", ""):
         artist_name = "Ken Sugimori"
     else:
         artist_name = artist_raw
 
-    # Sanitize card number (prevent '#No Number' or 'nan')
+    # Sanitize card number
     cnum_raw = str(row.get("card_number") or "").strip()
     if not cnum_raw or cnum_raw.lower() in ("nan", "none", "no number", "nan/nan", ""):
         if "japanese" in str(row.get("language", "")).lower() and ("base" in str(row.get("set_name", "")).lower() or "expansion" in str(row.get("set_name", "")).lower()):
             cnum_display = "No. 015"
+        elif "darkness" in str(row.get("set_name", "")).lower() or "neo destiny" in str(row.get("set_name", "")).lower():
+            cnum_display = "No. 037"
         else:
             cnum_display = "Promo / Unnumbered"
-    elif not cnum_raw.startswith("#"):
+    elif not cnum_raw.startswith("#") and not cnum_raw.startswith("No."):
         cnum_display = f"#{cnum_raw}"
     else:
         cnum_display = cnum_raw
@@ -319,11 +337,18 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
     # Sanitize release year
     ryear = row.get("release_year")
     if not ryear or str(ryear).lower() in ("nan", "none", "0"):
-        ryear = 1996 if "expansion" in str(row.get("set_name", "")).lower() or "japanese base" in str(row.get("set_name", "")).lower() else 1999
+        if "darkness" in str(row.get("set_name", "")).lower():
+            ryear = 2001
+        elif "expansion" in str(row.get("set_name", "")).lower() or "japanese base" in str(row.get("set_name", "")).lower():
+            ryear = 1996
+        else:
+            ryear = 1999
 
-    # Sanitize image URL for Japanese Base Set
+    # Sanitize image URL
     row_img = row.get("image_url")
-    if "japanese" in str(row.get("language", "")).lower() and ("base" in str(row.get("set_name", "")).lower() or "expansion" in str(row.get("set_name", "")).lower()):
+    if "darkness" in str(row.get("set_name", "")).lower():
+        row_img = "dashboard/static/cards/vulpix-darkness-and-to-light-no-014.jpg"
+    elif "japanese" in str(row.get("language", "")).lower() and ("base" in str(row.get("set_name", "")).lower() or "expansion" in str(row.get("set_name", "")).lower()):
         if not row_img or "vulpix_base_set_68_102" in str(row_img) or "vulpix-base-expansion-pack-006-128" in str(row_img):
             row_img = "dashboard/static/cards/vulpix-expansion-pack-no-015.jpg"
 
@@ -331,14 +356,22 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
     finish_style = row.get("finish") or row.get("edition") or "Standard"
     rarity_name = row.get("rarity") or "Common"
 
-    # Dynamic or custom collector's note
-    if row.get("notes") and len(str(row["notes"]).strip()) > 5:
-        collector_note = str(row["notes"]).strip()
+    # Variant graphic badge
+    variant_badge_html = get_variant_graphic_badge_html(finish_style, row.get("edition"))
+
+    # Dynamic educational collector's note (strip awkward 'Variant: ...' strings)
+    raw_note = str(row.get("notes") or "").strip()
+    for prefix in ("Variant:", "variant:", "PokeCottage:"):
+        if prefix in raw_note:
+            raw_note = raw_note.replace(prefix, "").strip()
+
+    if raw_note and len(raw_note) > 4 and raw_note.lower() not in ("none", "nan", "standard", "non-holo", "holo"):
+        collector_note = raw_note
     else:
-        collector_note = f"Released in the {row['language']} {row['set_name']} expansion ({ryear}) featuring artwork by {artist_name}."
+        collector_note = f"Authentic {row['language']} printing from the {row['set_name']} expansion ({ryear}) illustrated by {artist_name}."
 
     st.markdown('<div class="sketchbook-modal">', unsafe_allow_html=True)
-    b_col1, b_col2, b_col3 = st.columns([1, 1.4, 1])
+    b_col1, b_col2, b_col3 = st.columns([1, 1.4, 1.2])
 
     with b_col1:
         col1_html = clean_html(f"""
@@ -371,8 +404,8 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
         <div style="padding: 10px 0;">
             <div class="sketchbook-annot-label">RARITY</div>
             <div class="sketchbook-annot-val">{rarity_name}</div>
-            <div class="sketchbook-annot-label">FINISH</div>
-            <div class="sketchbook-annot-val">{finish_style}</div>
+            <div class="sketchbook-annot-label">CARD VARIANT / FINISH</div>
+            <div style="margin-bottom: 14px;">{variant_badge_html}</div>
             <div class="sketchbook-annot-label">COLLECTOR'S NOTE</div>
             <div class="sketchbook-note-card">
                 "{collector_note}"
@@ -515,7 +548,7 @@ if "Binder" in master_view_mode:
                 else '<span style="background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #fca5a5; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">❌ MISSING</span>'
             )
             ed_badge = get_edition_badge_html(row.get("edition", "Unlimited"))
-            err_badge = '<span class="badge-error">⚠️ ERROR</span>' if row["is_error"] == 1 else ""
+            err_badge = '<span class="badge-error">⚠️ ERROR</span>' if row.get("is_error") == 1 else ""
             img_src = get_card_image_data_uri(row["image_url"] if row["image_url"] else DEFAULT_CARD_BACK_IMAGE)
 
             reg_val = str(row.get("region") or "International")
@@ -524,18 +557,20 @@ if "Binder" in master_view_mode:
             cnum_raw_item = str(row.get("card_number") or "").strip()
             if not cnum_raw_item or cnum_raw_item.lower() in ("nan", "none", "no number", ""):
                 card_num_display = "(No #)"
-            elif not cnum_raw_item.startswith("#"):
+            elif not cnum_raw_item.startswith("#") and not cnum_raw_item.startswith("No."):
                 card_num_display = f"#{cnum_raw_item}"
             else:
                 card_num_display = cnum_raw_item
 
             cameo_badge = '<span style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.4); border-radius: 4px; padding: 1px 6px; font-size: 0.68rem; font-weight: 700;">🎭 Cameo</span>' if row.get("is_cameo") == 1 else ""
 
+            ryear_item = row.get("release_year") or 2000
+
             card_sleeve_html = clean_html(f"""
             <div class="binder-card-sleeve {owned_cls}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                    <span style="font-size: 0.76rem; font-weight: 700; color: #94a3b8;">{reg_icon} {row['release_year']}</span>
-                    <div style="display: flex; gap: 4px; align-items: center;">{cameo_badge} {status_badge}</div>
+                    <span style="font-size: 0.76rem; font-weight: 700; color: #94a3b8;">{reg_icon} {ryear_item}</span>
+                    <div style="display: flex; gap: 4px; align-items: center;">{err_badge} {cameo_badge} {status_badge}</div>
                 </div>
                 <div style="text-align: center; margin: 6px 0;">
                     <img src="{img_src}" class="binder-card-img" />
@@ -543,8 +578,9 @@ if "Binder" in master_view_mode:
                 <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-weight: 700; font-size: 0.95rem; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px;">
                     {row['card_name']}
                 </div>
-                <div style="color: #94a3b8; font-size: 0.74rem; margin-bottom: 6px;">
-                    {row['set_name']} • {card_num_display}
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="color: #94a3b8; font-size: 0.74rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%;">{row['set_name']} • {card_num_display}</span>
+                    <div>{ed_badge}</div>
                 </div>
                 <div style="display: flex; justify-content: space-between; font-size: 0.74rem; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 6px; margin-bottom: 8px;">
                     <span style="color: #94a3b8;">Raw: <strong style="color: #fbbf24;">${row['est_raw_price']:,.2f}</strong></span>
@@ -555,7 +591,7 @@ if "Binder" in master_view_mode:
             st.markdown(card_sleeve_html, unsafe_allow_html=True)
 
             # Direct Button to Inspect Card
-            if st.button("🔍 Inspect Card", key=f"binder_btn_{row['id']}", use_container_width=True):
+            if st.button("🔍 Inspect Details", key=f"binder_btn_{row['id']}", use_container_width=True):
                 st.session_state["dialog_card_id"] = int(row["id"])
                 st.session_state["dialog_open"] = True
                 st.rerun()
