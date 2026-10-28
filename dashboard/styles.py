@@ -11,8 +11,9 @@ import streamlit as st
 
 
 def clean_html(html_str: str) -> str:
-    """Safely dedents and trims HTML string so Python-Markdown never interprets it as a code block."""
-    return textwrap.dedent(html_str).strip()
+    """Strips all leading and trailing whitespace from each line and joins into a single continuous HTML string with zero newlines, preventing any Markdown code block interpretations."""
+    lines = [line.strip() for line in html_str.splitlines() if line.strip()]
+    return "".join(lines)
 
 
 def apply_custom_styles():

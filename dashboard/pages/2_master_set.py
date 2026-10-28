@@ -42,13 +42,18 @@ from styles import (
 apply_custom_styles()
 render_header()
 
-# Check URL Query Parameter for Direct Inspection Link (e.g. ?inspect=123)
-query_params = getattr(st, "query_params", {})
-if "inspect" in query_params:
+# Clear any legacy inspect URL query parameter immediately so it never forces modal open on page load
+if "inspect" in getattr(st, "query_params", {}):
     try:
-        st.session_state["modal_card_id"] = int(query_params["inspect"])
+        del st.query_params["inspect"]
     except Exception:
         pass
+
+# Ensure dialog state exists
+if "dialog_card_id" not in st.session_state:
+    st.session_state["dialog_card_id"] = None
+if "dialog_open" not in st.session_state:
+    st.session_state["dialog_open"] = False
 
 # Top Controls Bar: Cameo Filter
 c_top_title, c_top_opt = st.columns([3, 2])
@@ -90,50 +95,22 @@ total_master_count = len(df_count_base)
 # =========================================================
 cameo_sub_badge = ' <span style="font-size: 0.74rem; font-weight: 600; color: #94a3b8; background: #1a202c; padding: 2px 8px; border-radius: 6px; border: 1px solid #2d3748;">Cameos Excluded</span>' if exclude_cameos else ""
 
-hero_html = f"""
+hero_html = clean_html(f"""
 <div class="cottage-hero">
     <h2 class="cottage-hero-title">Vulpix Master Set Card Count</h2>
-    
     <div class="cottage-stats-grid">
-        <div class="cottage-stat-item">
-            <div class="cottage-stat-label">ENGLISH</div>
-            <div class="cottage-stat-val">{english_count} cards</div>
-        </div>
-        <div class="cottage-stat-item">
-            <div class="cottage-stat-label">JAPANESE</div>
-            <div class="cottage-stat-val">{japanese_count} cards</div>
-        </div>
-        <div class="cottage-stat-item">
-            <div class="cottage-stat-label">S. CHINESE</div>
-            <div class="cottage-stat-val">{chinese_count} cards</div>
-        </div>
-        <div class="cottage-stat-item">
-            <div class="cottage-stat-label">PROMOS</div>
-            <div class="cottage-stat-val">{promo_count} cards</div>
-        </div>
-        <div class="cottage-stat-item">
-            <div class="cottage-stat-label">UNIQUE PRINTINGS</div>
-            <div class="cottage-stat-val">{unique_printings} cards</div>
-        </div>
-        <div class="cottage-stat-item">
-            <div class="cottage-stat-label">ADDITIONAL VARIANTS</div>
-            <div class="cottage-stat-val">{additional_variants} cards</div>
-        </div>
+        <div class="cottage-stat-item"><div class="cottage-stat-label">ENGLISH</div><div class="cottage-stat-val">{english_count} cards</div></div>
+        <div class="cottage-stat-item"><div class="cottage-stat-label">JAPANESE</div><div class="cottage-stat-val">{japanese_count} cards</div></div>
+        <div class="cottage-stat-item"><div class="cottage-stat-label">S. CHINESE</div><div class="cottage-stat-val">{chinese_count} cards</div></div>
+        <div class="cottage-stat-item"><div class="cottage-stat-label">PROMOS</div><div class="cottage-stat-val">{promo_count} cards</div></div>
+        <div class="cottage-stat-item"><div class="cottage-stat-label">UNIQUE PRINTINGS</div><div class="cottage-stat-val">{unique_printings} cards</div></div>
+        <div class="cottage-stat-item"><div class="cottage-stat-label">ADDITIONAL VARIANTS</div><div class="cottage-stat-val">{additional_variants} cards</div></div>
     </div>
-
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-size: 1.25rem; font-weight: 700; color: #f8fafc;">
-            Master Set Progress{cameo_sub_badge}
-        </div>
-        <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-size: 1.5rem; font-weight: 700; color: #10b981;">
-            {master_metrics['completion_pct']}%
-        </div>
+        <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-size: 1.25rem; font-weight: 700; color: #f8fafc;">Master Set Progress{cameo_sub_badge}</div>
+        <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-size: 1.5rem; font-weight: 700; color: #10b981;">{master_metrics['completion_pct']}%</div>
     </div>
-
-    <div class="progress-bar-bg">
-        <div class="progress-bar-fill" style="width: {master_metrics['completion_pct']}%;"></div>
-    </div>
-
+    <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: {master_metrics['completion_pct']}%;"></div></div>
     <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #94a3b8; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
         <span>Owned: <strong style="color: #f8fafc;">{master_metrics['owned_cards']}</strong> / {master_metrics['total_cards']} Unique</span>
         <span>Missing: <strong style="color: #f87171;">{master_metrics['missing_cards']}</strong> cards</span>
@@ -141,7 +118,6 @@ hero_html = f"""
         <span>Est. Grade 10 Finish Cost: <strong style="color: #f59e0b;">${master_metrics['cost_to_complete_grade10']:,.2f}</strong></span>
         <span>Total Value: <strong style="color: #34d399;">${master_metrics['total_raw_value']:,.2f} Raw</strong> • <strong style="color: #fbbf24;">${master_metrics['total_grade10_value']:,.2f} PSA 10</strong></span>
     </div>
-
     <div style="margin-top: 24px;">
         <div class="cottage-oval-banner">
             <span>How Many Cards Are in the Vulpix Master Set?</span>
@@ -149,8 +125,8 @@ hero_html = f"""
         </div>
     </div>
 </div>
-"""
-st.markdown(clean_html(hero_html), unsafe_allow_html=True)
+""")
+st.markdown(hero_html, unsafe_allow_html=True)
 
 # Metadata Verification & Auto-Enrichment Controls
 en_col1, en_col2, en_col3, en_col4 = st.columns([1.8, 1.1, 1.1, 1.2])
@@ -273,13 +249,20 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
     """Renders the sleek obsidian collector showcase card detail dialog."""
     matches = active_df[active_df["id"] == card_id]
     if matches.empty:
-        st.warning("Card not found in active filtered view.")
-        return
+        # Fallback to df_master if active filter doesn't have it
+        matches = df_master[df_master["id"] == card_id]
+        if matches.empty:
+            st.warning("Card not found.")
+            return
 
     row = matches.iloc[0]
     id_list = active_df["id"].tolist()
-    curr_idx = id_list.index(card_id) if card_id in id_list else 0
-    total_in_view = len(id_list)
+    if card_id in id_list:
+        curr_idx = id_list.index(card_id)
+        total_in_view = len(id_list)
+    else:
+        curr_idx = 0
+        total_in_view = len(id_list) if len(id_list) > 0 else 1
 
     # Top Navigation Row (< 1 / 251 >)
     nav_c1, nav_c2, nav_c3 = st.columns([1, 2, 1])
@@ -287,12 +270,13 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
         if curr_idx > 0:
             prev_id = id_list[curr_idx - 1]
             if st.button("⬅ Previous", key=f"btn_prev_{card_id}", use_container_width=True):
-                st.session_state["modal_card_id"] = prev_id
+                st.session_state["dialog_card_id"] = prev_id
+                st.session_state["dialog_open"] = True
                 st.rerun()
         else:
             st.caption("First Card")
     with nav_c2:
-        top_title_html = f"""
+        top_title_html = clean_html(f"""
         <div style="text-align: center;">
             <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-style: italic; font-size: 1.7rem; font-weight: 700; color: #f8fafc; margin: 0;">
                 {row['card_name']}
@@ -301,78 +285,101 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
                 {row['set_name']} • {row['language']} • ({curr_idx + 1} / {total_in_view})
             </div>
         </div>
-        """
-        st.markdown(clean_html(top_title_html), unsafe_allow_html=True)
+        """)
+        st.markdown(top_title_html, unsafe_allow_html=True)
     with nav_c3:
         if curr_idx < total_in_view - 1:
             next_id = id_list[curr_idx + 1]
             if st.button("Next ➡", key=f"btn_next_{card_id}", use_container_width=True):
-                st.session_state["modal_card_id"] = next_id
+                st.session_state["dialog_card_id"] = next_id
+                st.session_state["dialog_open"] = True
                 st.rerun()
         else:
             st.caption("Last Card")
 
-    # Main Showcase Canvas
-    img_src = get_card_image_data_uri(row["image_url"] if row["image_url"] else DEFAULT_CARD_BACK_IMAGE)
-    artist_name = row.get("artist") or "Ken Sugimori"
+    # Sanitize artist name (prevent 'nan')
+    artist_raw = str(row.get("artist") or "").strip()
+    if not artist_raw or artist_raw.lower() in ("nan", "none", ""):
+        artist_name = "Ken Sugimori"
+    else:
+        artist_name = artist_raw
+
+    # Sanitize card number (prevent '#No Number' or 'nan')
+    cnum_raw = str(row.get("card_number") or "").strip()
+    if not cnum_raw or cnum_raw.lower() in ("nan", "none", "no number", "nan/nan", ""):
+        if "japanese" in str(row.get("language", "")).lower() and ("base" in str(row.get("set_name", "")).lower() or "expansion" in str(row.get("set_name", "")).lower()):
+            cnum_display = "No. 015"
+        else:
+            cnum_display = "Promo / Unnumbered"
+    elif not cnum_raw.startswith("#"):
+        cnum_display = f"#{cnum_raw}"
+    else:
+        cnum_display = cnum_raw
+
+    # Sanitize release year
+    ryear = row.get("release_year")
+    if not ryear or str(ryear).lower() in ("nan", "none", "0"):
+        ryear = 1996 if "expansion" in str(row.get("set_name", "")).lower() or "japanese base" in str(row.get("set_name", "")).lower() else 1999
+
+    # Sanitize image URL for Japanese Base Set
+    row_img = row.get("image_url")
+    if "japanese" in str(row.get("language", "")).lower() and ("base" in str(row.get("set_name", "")).lower() or "expansion" in str(row.get("set_name", "")).lower()):
+        if not row_img or "vulpix_base_set_68_102" in str(row_img) or "vulpix-base-expansion-pack-006-128" in str(row_img):
+            row_img = "dashboard/static/cards/vulpix-expansion-pack-no-015.jpg"
+
+    img_src = get_card_image_data_uri(row_img if row_img else DEFAULT_CARD_BACK_IMAGE)
     finish_style = row.get("finish") or row.get("edition") or "Standard"
-    cnum_display = f"#{row['card_number']}" if row["card_number"] and str(row["card_number"]).lower() != "nan" else "Promo"
     rarity_name = row.get("rarity") or "Common"
 
     # Dynamic or custom collector's note
     if row.get("notes") and len(str(row["notes"]).strip()) > 5:
         collector_note = str(row["notes"]).strip()
     else:
-        collector_note = f"Released in the {row['language']} {row['set_name']} expansion ({row['release_year']}) featuring original artwork by {artist_name}."
+        collector_note = f"Released in the {row['language']} {row['set_name']} expansion ({ryear}) featuring artwork by {artist_name}."
 
     st.markdown('<div class="sketchbook-modal">', unsafe_allow_html=True)
     b_col1, b_col2, b_col3 = st.columns([1, 1.4, 1])
 
     with b_col1:
-        col1_html = f"""
-        <div style="padding: 12px 0;">
+        col1_html = clean_html(f"""
+        <div style="padding: 10px 0;">
             <div class="sketchbook-annot-label">CARD NUMBER</div>
             <div class="sketchbook-annot-val">{cnum_display}</div>
-            
             <div class="sketchbook-annot-label">ILLUSTRATOR</div>
             <div class="sketchbook-annot-val">{artist_name}</div>
-            
             <div class="sketchbook-annot-label">RELEASE YEAR</div>
-            <div class="sketchbook-annot-val">{row['release_year']}</div>
-            
+            <div class="sketchbook-annot-val">{ryear}</div>
             <div class="sketchbook-annot-label">LANGUAGE</div>
             <div class="sketchbook-annot-val">{row['language']}</div>
         </div>
-        """
-        st.markdown(clean_html(col1_html), unsafe_allow_html=True)
+        """)
+        st.markdown(col1_html, unsafe_allow_html=True)
 
     with b_col2:
-        col2_html = f"""
+        col2_html = clean_html(f"""
         <div style="text-align: center; padding: 6px 0;">
             <img src="{img_src}" style="max-height: 380px; max-width: 100%; border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.08);" />
             <div style="font-size: 0.72rem; color: #94a3b8; font-style: italic; margin-top: 8px;">
                 Verified Pokémon TCG master scan
             </div>
         </div>
-        """
-        st.markdown(clean_html(col2_html), unsafe_allow_html=True)
+        """)
+        st.markdown(col2_html, unsafe_allow_html=True)
 
     with b_col3:
-        col3_html = f"""
-        <div style="padding: 12px 0;">
+        col3_html = clean_html(f"""
+        <div style="padding: 10px 0;">
             <div class="sketchbook-annot-label">RARITY</div>
             <div class="sketchbook-annot-val">{rarity_name}</div>
-            
             <div class="sketchbook-annot-label">FINISH</div>
             <div class="sketchbook-annot-val">{finish_style}</div>
-            
             <div class="sketchbook-annot-label">COLLECTOR'S NOTE</div>
             <div class="sketchbook-note-card">
                 "{collector_note}"
             </div>
         </div>
-        """
-        st.markdown(clean_html(col3_html), unsafe_allow_html=True)
+        """)
+        st.markdown(col3_html, unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -388,7 +395,7 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
     pc_url = row.get("pricecharting_url") or get_pricecharting_search_url(row["card_name"], row["set_name"], row["card_number"])
     tcg_url = row.get("tcgplayer_url") or f"https://www.tcgplayer.com/search/pokemon/product?q={row['card_name']}+{row['set_name']}"
 
-    footer_html = f"""
+    footer_html = clean_html(f"""
     <div class="sketchbook-footer-bar">
         <div>
             <div style="font-size: 0.68rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: #94a3b8;">SET</div>
@@ -406,8 +413,8 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
             <a href="{pc_url}" target="_blank" class="btn-pc">📊 Comps</a>
         </div>
     </div>
-    """
-    st.markdown(clean_html(footer_html), unsafe_allow_html=True)
+    """)
+    st.markdown(footer_html, unsafe_allow_html=True)
 
     # Collection Status & Toggle
     is_owned = bool(row["is_owned"])
@@ -419,6 +426,7 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
         if is_owned:
             if st.button("❌ Remove from Vault", key=f"modal_unmark_{card_id}", use_container_width=True):
                 unmark_card_as_owned(row["id"])
+                st.session_state["dialog_open"] = True
                 st.rerun()
         else:
             if st.button("✅ Mark as Owned", key=f"modal_mark_{card_id}", use_container_width=True):
@@ -435,12 +443,12 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
                     master_card_id=row["id"],
                     image_url=row["image_url"],
                 )
+                st.session_state["dialog_open"] = True
                 st.rerun()
     with act_c3:
         if st.button("✕ Close", key=f"modal_close_{card_id}", use_container_width=True):
-            st.session_state["modal_card_id"] = None
-            if "inspect" in getattr(st, "query_params", {}):
-                del st.query_params["inspect"]
+            st.session_state["dialog_card_id"] = None
+            st.session_state["dialog_open"] = False
             st.rerun()
 
 
@@ -454,9 +462,10 @@ else:
             render_sketchbook_modal_content(card_id, active_df)
 
 
-# If modal_card_id is active, launch dialog
-if st.session_state.get("modal_card_id") is not None:
-    show_card_dialog(st.session_state["modal_card_id"], filtered_master)
+# Only launch dialog if dialog_open flag was actively set by a user button click
+if st.session_state.get("dialog_open") and st.session_state.get("dialog_card_id") is not None:
+    st.session_state["dialog_open"] = False  # Reset immediately so refresh / close NEVER reopens it!
+    show_card_dialog(st.session_state["dialog_card_id"], filtered_master)
 
 # =========================================================
 # Layout Mode 1: 4x4 Collector Binder (Default)
@@ -511,19 +520,25 @@ if "Binder" in master_view_mode:
 
             reg_val = str(row.get("region") or "International")
             reg_icon = "🇯🇵" if "japan" in reg_val.lower() else ("🇨🇳" if "china" in reg_val.lower() else "🌐")
-            card_num_display = f"#{row['card_number']}" if row['card_number'] and str(row['card_number']).lower() != "nan" else "(Promo)"
+            
+            cnum_raw_item = str(row.get("card_number") or "").strip()
+            if not cnum_raw_item or cnum_raw_item.lower() in ("nan", "none", "no number", ""):
+                card_num_display = "(No #)"
+            elif not cnum_raw_item.startswith("#"):
+                card_num_display = f"#{cnum_raw_item}"
+            else:
+                card_num_display = cnum_raw_item
+
             cameo_badge = '<span style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.4); border-radius: 4px; padding: 1px 6px; font-size: 0.68rem; font-weight: 700;">🎭 Cameo</span>' if row.get("is_cameo") == 1 else ""
 
-            card_sleeve_html = f"""
+            card_sleeve_html = clean_html(f"""
             <div class="binder-card-sleeve {owned_cls}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                     <span style="font-size: 0.76rem; font-weight: 700; color: #94a3b8;">{reg_icon} {row['release_year']}</span>
                     <div style="display: flex; gap: 4px; align-items: center;">{cameo_badge} {status_badge}</div>
                 </div>
                 <div style="text-align: center; margin: 6px 0;">
-                    <a href="?inspect={row['id']}" target="_self">
-                        <img src="{img_src}" class="binder-card-img" title="Click to inspect {row['card_name']}" />
-                    </a>
+                    <img src="{img_src}" class="binder-card-img" />
                 </div>
                 <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-weight: 700; font-size: 0.95rem; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px;">
                     {row['card_name']}
@@ -536,12 +551,13 @@ if "Binder" in master_view_mode:
                     <span style="color: #94a3b8;">PSA 10: <strong style="color: #f59e0b;">${row['est_grade10_price']:,.2f}</strong></span>
                 </div>
             </div>
-            """
-            st.markdown(clean_html(card_sleeve_html), unsafe_allow_html=True)
+            """)
+            st.markdown(card_sleeve_html, unsafe_allow_html=True)
 
             # Direct Button to Inspect Card
             if st.button("🔍 Inspect Card", key=f"binder_btn_{row['id']}", use_container_width=True):
-                st.session_state["modal_card_id"] = int(row["id"])
+                st.session_state["dialog_card_id"] = int(row["id"])
+                st.session_state["dialog_open"] = True
                 st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -606,7 +622,7 @@ elif "Consolidated" in master_view_mode:
         cnum_lbl = f"#{rel['card_number']}" if rel['card_number'] and str(rel['card_number']).lower() != "nan" else "(Promo)"
         cameo_pill = '<span style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.4); border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; font-weight: 800; margin-left: 8px;">🎭 CAMEO</span>' if rel.get("is_cameo") else ""
 
-        rel_box_html = f"""
+        rel_box_html = clean_html(f"""
         <div class="slab-box" style="padding: 18px 22px; margin-bottom: 18px;">
             <div style="display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;">
                 <div style="flex-shrink: 0; text-align: center; width: 130px;">
@@ -648,8 +664,8 @@ elif "Consolidated" in master_view_mode:
                 </div>
             </div>
         </div>
-        """
-        st.markdown(clean_html(rel_box_html), unsafe_allow_html=True)
+        """)
+        st.markdown(rel_box_html, unsafe_allow_html=True)
 
         with st.expander(f"🔍 View {len(rel['variants'])} Specific Variants & Comps for {rel['card_name']} ({rel['set_name']})"):
             for v in rel["variants"]:

@@ -507,7 +507,9 @@ def init_db(db_path: Optional[str] = None) -> None:
                 artist = 'Ken Sugimori',
                 finish = 'With Rarity Symbol',
                 notes = 'Japan | Original | Expansion Pack (With Rarity Symbol)'
-            WHERE id = 283 OR (set_name = 'Expansion Pack' AND edition = 'With Rarity Symbol');
+            WHERE id = 283 
+               OR (set_name = 'Expansion Pack' AND edition = 'With Rarity Symbol')
+               OR (set_name LIKE '%Japanese%Base%' AND (edition LIKE '%Rarity%' OR edition LIKE '%Standard%'));
         ''')
         cursor.execute('''
             UPDATE master_set_catalog
@@ -519,7 +521,23 @@ def init_db(db_path: Optional[str] = None) -> None:
                 artist = 'Ken Sugimori',
                 finish = 'No Rarity Symbol',
                 notes = 'Japan | Original | Expansion Pack (No Rarity Symbol)'
-            WHERE id = 701 OR (set_name = 'Expansion Pack' AND (pokecottage_id = '37-jpn_b01-15-noRaritySymbol' OR edition = 'No Rarity Symbol'));
+            WHERE id = 701 
+               OR (set_name = 'Expansion Pack' AND (pokecottage_id = '37-jpn_b01-15-noRaritySymbol' OR edition = 'No Rarity Symbol'))
+               OR (set_name LIKE '%Japanese%Base%' AND edition LIKE '%No Rarity%');
+        ''')
+        cursor.execute('''
+            UPDATE master_set_catalog
+            SET artist = 'Ken Sugimori'
+            WHERE artist IS NULL OR artist = 'nan' OR artist = 'None' OR artist = '';
+        ''')
+        cursor.execute('''
+            UPDATE master_set_catalog
+            SET image_url = 'dashboard/static/cards/vulpix-expansion-pack-no-015.jpg',
+                artist = 'Ken Sugimori',
+                card_number = '015/102',
+                release_year = 1996
+            WHERE set_name LIKE '%Japanese%Base%'
+               OR (language = 'Japanese' AND card_name = 'Vulpix' AND (card_number IS NULL OR card_number = '' OR card_number = 'No Number') AND release_year <= 2000);
         ''')
         cursor.execute("DELETE FROM master_set_catalog WHERE id = 282;")
 
