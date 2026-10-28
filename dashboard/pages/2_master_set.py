@@ -41,17 +41,27 @@ from styles import (
 apply_custom_styles()
 render_header()
 
-master_metrics = get_master_set_metrics()
-df_master = load_master_catalog_df()
+c_top_title, c_top_opt = st.columns([3, 2])
+with c_top_title:
+    st.markdown("### 📜 Master Set Checklist & Catalog")
+with c_top_opt:
+    exclude_cameos = st.checkbox(
+        "🚫 Exclude Cameo Cards (Pikachu/Cameos)",
+        value=True,
+        help="When checked, non-Vulpix cards that only feature Vulpix in the background/cameo (e.g. Poncho Pikachu, Sapporo's Pikachu, Pokémon Rumble) are hidden and excluded from Master Set completion statistics.",
+        key="exclude_cameos_toggle"
+    )
 
-st.markdown("### 📜 Master Set Checklist & Catalog")
+master_metrics = get_master_set_metrics(exclude_cameos=exclude_cameos)
+df_master = load_master_catalog_df()
 
 # Progress Header
 pct = master_metrics["completion_pct"]
+cameo_sub_badge = ' <span style="font-size: 0.78rem; font-weight: 600; color: #94a3b8; background: #1e293b; padding: 2px 8px; border-radius: 6px; border: 1px solid #334155;">Cameos Excluded</span>' if exclude_cameos else ""
 st.markdown(
     f"""<div class="master-box">
 <div style="display: flex; justify-content: space-between; align-items: center;">
-<div style="font-weight: 800; font-size: 1.2rem; color: #ffffff;">Vulpix Master Set Completion</div>
+<div style="font-weight: 800; font-size: 1.2rem; color: #ffffff;">Vulpix Master Set Completion{cameo_sub_badge}</div>
 <div style="font-weight: 800; font-size: 1.4rem; color: #10b981;">{pct}%</div>
 </div>
 <div class="progress-bar-bg">
@@ -98,7 +108,7 @@ with en_col4:
 # Filter Controls
 m_col1, m_col2, m_col3, m_col4 = st.columns(4)
 with m_col1:
-    m_view = st.selectbox("Status Filter", ["All Master Cards", "❌ Missing Cards Only", "✅ Owned Cards Only", "🌐 International Cards", "🇯🇵 Japan Releases", "🇨🇳 China Releases", "🥇 1st Edition Only", "💎 Low Pop (<20 PSA 10)", "⚠️ Error Cards Only"])
+    m_view = st.selectbox("Status Filter", ["All Master Cards", "❌ Missing Cards Only", "✅ Owned Cards Only", "🌐 International Cards", "🇯🇵 Japan Releases", "🇨🇳 China Releases", "🥇 1st Edition Only", "💎 Low Pop (<20 PSA 10)", "⚠️ Error Cards Only", "🎭 Cameo Cards Only"])
 with m_col2:
     m_langs = ["All Languages"] + sorted(df_master["language"].dropna().unique().tolist())
     m_sel_lang = st.selectbox("Language Filter", m_langs)
@@ -110,10 +120,17 @@ with m_col4:
 
 # Filter DataFrame
 filtered_master = df_master.copy()
+if exclude_cameos and m_view != "🎭 Cameo Cards Only":
+    if "is_cameo" in filtered_master.columns:
+        filtered_master = filtered_master[filtered_master["is_cameo"] != 1]
+
 if m_view == "❌ Missing Cards Only":
     filtered_master = filtered_master[~filtered_master["is_owned"]]
 elif m_view == "✅ Owned Cards Only":
     filtered_master = filtered_master[filtered_master["is_owned"]]
+elif m_view == "🎭 Cameo Cards Only":
+    if "is_cameo" in filtered_master.columns:
+        filtered_master = filtered_master[filtered_master["is_cameo"] == 1]
 elif m_view == "🌐 International Cards":
     filtered_master = filtered_master[filtered_master["region"].fillna("International").str.contains("International|All|USA|Europe", case=False, na=False)]
 elif m_view == "🇯🇵 Japan Releases":
@@ -203,6 +220,7 @@ if "Consolidated" in master_view_mode:
         g10_range = f"${rel['min_grade10_price']:.2f}" if rel['min_grade10_price'] == rel['max_grade10_price'] and rel['min_grade10_price'] > 0 else (f"${rel['min_grade10_price']:.2f}–${rel['max_grade10_price']:.2f}" if rel['max_grade10_price'] > 0 else "—")
 
         card_num_str = f"#{rel['card_number']}" if rel['card_number'] and str(rel['card_number']).lower() != "nan" else "(Promo / No #)"
+        cameo_badge = '<span style="background: rgba(59, 130, 246, 0.18); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 4px; padding: 2px 7px; font-size: 0.72rem; font-weight: 700; margin-left: 8px;">🎭 CAMEO</span>' if rel.get('is_cameo') else ""
 
         rel_html = f"""<div class="slab-box" style="padding: 16px; margin-bottom: 12px; border-radius: 12px; background: #131722; border: 1px solid #232936;">
 <div style="display: flex; gap: 18px; align-items: flex-start;">
@@ -214,6 +232,7 @@ if "Consolidated" in master_view_mode:
 <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 6px; margin-bottom: 6px;">
 <div>
 <span style="font-size: 1.15rem; font-weight: 800; color: #ffffff;">{rel['card_name']}</span>
+{cameo_badge}
 <span style="color: #94a3b8; font-size: 0.88rem; margin-left: 8px;">{rel['set_name']} • {card_num_str}</span>
 </div>
 <div style="text-align: right;">
@@ -392,13 +411,14 @@ elif "Card Grid" in master_view_mode:
             reg_val = str(row.get("region") or "International")
             reg_icon = "🇯🇵" if "japan" in reg_val.lower() else ("🇨🇳" if "china" in reg_val.lower() else "🌐")
             card_num_display = f"#{row['card_number']}" if row['card_number'] and str(row['card_number']).lower() != "nan" else "(Promo / No #)"
+            cameo_badge = '<span style="background: rgba(59, 130, 246, 0.18); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 4px; padding: 1px 6px; font-size: 0.68rem; font-weight: 700;">🎭 Cameo</span>' if row.get("is_cameo") == 1 else ""
             est_raw_display = f"${row['est_raw_price']:,.2f}" if row['est_raw_price'] > 0 else '<span style="color: #64748b; font-style: italic;">—</span>'
             est_g10_display = f"${row['est_grade10_price']:,.2f}" if row['est_grade10_price'] > 0 else '<span style="color: #64748b; font-style: italic;">—</span>'
 
             master_card_html = f"""<div class="slab-box" style="padding: 12px; margin-bottom: 14px;">
 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
 <div style="font-size: 0.78rem; font-weight: 700; color: #94a3b8;">{reg_icon} {row['release_year']} • {row['language']}</div>
-<div style="display: flex; gap: 3px; align-items: center; flex-wrap: wrap;">{ed_badge} {err_badge} {status_badge}</div>
+<div style="display: flex; gap: 3px; align-items: center; flex-wrap: wrap;">{cameo_badge} {ed_badge} {err_badge} {status_badge}</div>
 </div>
 <div style="text-align: center; margin: 8px 0;">
 <img src="{img_src}" loading="lazy" decoding="async" style="max-height: 155px; max-width: 100%; border-radius: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);" />

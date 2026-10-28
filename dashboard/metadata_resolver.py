@@ -749,7 +749,7 @@ VULPIX_KNOWN_SET_INDEX = {
         "rarity": "Special Box Promo",
         "est_raw_price": 180.0,
         "est_grade10_price": 650.0,
-        "image_url": "https://images.pokemontcg.io/smp/SM05_hires.png",
+        "image_url": "dashboard/static/cards/sapporo_s_pikachu__vulpix_cameo__promo_005_sm-p.jpg",
     },
     ("promo", "005"): {
         "card_name": "Sapporo's Pikachu (Vulpix Cameo)",
@@ -758,7 +758,7 @@ VULPIX_KNOWN_SET_INDEX = {
         "rarity": "Special Box Promo",
         "est_raw_price": 180.0,
         "est_grade10_price": 650.0,
-        "image_url": "https://images.pokemontcg.io/smp/SM05_hires.png",
+        "image_url": "dashboard/static/cards/sapporo_s_pikachu__vulpix_cameo__promo_005_sm-p.jpg",
     },
     ("ex dragon frontiers", "69"): {
         "card_name": "Vulpix (Delta Species)",

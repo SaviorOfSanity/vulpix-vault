@@ -260,6 +260,75 @@ def init_db(db_path: Optional[str] = None) -> None:
             WHERE (set_name LIKE '%Rumble%' OR set_name LIKE '%Scramble%') AND image_url LIKE '%minun%';
         """)
 
+        # Fix EX Dragon Frontiers Vulpix (#70/101 not Trapinch #69/101)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET card_number = '70/101',
+                image_url = 'dashboard/static/cards/ex_dragon_frontiers_70.jpg'
+            WHERE set_name LIKE '%Dragon Frontiers%' AND (card_number LIKE '%69%' OR image_url LIKE '%ex15/69%');
+        """)
+
+        # Fix Sapporo's Pikachu (#005/SM-P not Snorlax-GX #05)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET card_name = 'Sapporo''s Pikachu (Vulpix Cameo)',
+                image_url = 'dashboard/static/cards/sapporo_s_pikachu__vulpix_cameo__promo_005_sm-p.jpg',
+                is_cameo = 1
+            WHERE card_name LIKE '%Sapporo%' OR (card_number LIKE '%005/SM-P%' AND (image_url LIKE '%SM05%' OR card_name LIKE '%Pikachu%'));
+        """)
+
+        # Fix Poncho-clad Pikachu (Alolan Vulpix Poncho #037/SM-P not Zapdos #37)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET card_name = 'Poncho-wearing Pikachu (Alolan Vulpix Poncho)',
+                set_name = 'Promo',
+                image_url = 'dashboard/static/cards/promo_037_smp.jpg',
+                is_cameo = 1
+            WHERE card_number LIKE '%037/SM-P%' OR card_name LIKE '%Poncho%Alolan%' OR card_name LIKE '%Special Box%';
+        """)
+
+        # Fix Poncho-wearing Pikachu (Vulpix Poncho #038/SM-P)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET card_name = 'Poncho-wearing Pikachu (Vulpix Poncho)',
+                set_name = 'Promo',
+                image_url = 'dashboard/static/cards/promo_038_smp.jpg',
+                is_cameo = 1
+            WHERE card_number LIKE '%038/SM-P%' OR (card_name LIKE '%Poncho%' AND card_name NOT LIKE '%Alolan%');
+        """)
+
+        # Fix Korean 059/XY-P Vulpix Promo image
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/promo_110_xyp.jpg'
+            WHERE card_number LIKE '%059/XY-P%';
+        """)
+
+        # Fix Neo Destiny: drop duplicate 90/105 English rows, update others
+        cursor.execute("""
+            DELETE FROM master_set_catalog 
+            WHERE set_name LIKE '%Neo Destiny%' AND card_number LIKE '%90%' AND language = 'English';
+        """)
+        cursor.execute("""
+            UPDATE OR IGNORE master_set_catalog 
+            SET card_number = '91/105',
+                image_url = 'dashboard/static/cards/vulpix_neo_destiny_90_105.jpg'
+            WHERE set_name LIKE '%Neo Destiny%' AND card_number LIKE '%90%';
+        """)
+
+        # Ensure all cameo cards are accurately flagged with is_cameo = 1
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET is_cameo = 1
+            WHERE card_name LIKE '%cameo%'
+               OR notes LIKE '%cameo%'
+               OR card_name LIKE '%pikachu%'
+               OR card_name LIKE '%poncho%'
+               OR set_name LIKE '%Rumble%'
+               OR set_name LIKE '%Scramble%'
+               OR card_name NOT LIKE '%vulpix%';
+        """)
+
 
 
 # =============================================================

@@ -449,6 +449,75 @@ def ensure_tables_exist():
             WHERE (set_name LIKE '%Rumble%' OR set_name LIKE '%Scramble%') AND image_url LIKE '%minun%';
         """)
 
+        # Fix EX Dragon Frontiers Vulpix (#70/101 not Trapinch #69/101)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET card_number = '70/101',
+                image_url = 'dashboard/static/cards/ex_dragon_frontiers_70.jpg'
+            WHERE set_name LIKE '%Dragon Frontiers%' AND (card_number LIKE '%69%' OR image_url LIKE '%ex15/69%');
+        """)
+
+        # Fix Sapporo's Pikachu (#005/SM-P not Snorlax-GX #05)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET card_name = 'Sapporo''s Pikachu (Vulpix Cameo)',
+                image_url = 'dashboard/static/cards/sapporo_s_pikachu__vulpix_cameo__promo_005_sm-p.jpg',
+                is_cameo = 1
+            WHERE card_name LIKE '%Sapporo%' OR (card_number LIKE '%005/SM-P%' AND (image_url LIKE '%SM05%' OR card_name LIKE '%Pikachu%'));
+        """)
+
+        # Fix Poncho-clad Pikachu (Alolan Vulpix Poncho #037/SM-P not Zapdos #37)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET card_name = 'Poncho-wearing Pikachu (Alolan Vulpix Poncho)',
+                set_name = 'Promo',
+                image_url = 'dashboard/static/cards/promo_037_smp.jpg',
+                is_cameo = 1
+            WHERE card_number LIKE '%037/SM-P%' OR card_name LIKE '%Poncho%Alolan%' OR card_name LIKE '%Special Box%';
+        """)
+
+        # Fix Poncho-wearing Pikachu (Vulpix Poncho #038/SM-P)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET card_name = 'Poncho-wearing Pikachu (Vulpix Poncho)',
+                set_name = 'Promo',
+                image_url = 'dashboard/static/cards/promo_038_smp.jpg',
+                is_cameo = 1
+            WHERE card_number LIKE '%038/SM-P%' OR (card_name LIKE '%Poncho%' AND card_name NOT LIKE '%Alolan%');
+        """)
+
+        # Fix Korean 059/XY-P Vulpix Promo image
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/promo_110_xyp.jpg'
+            WHERE card_number LIKE '%059/XY-P%';
+        """)
+
+        # Fix Neo Destiny: drop duplicate 90/105 English rows, update others
+        cursor.execute("""
+            DELETE FROM master_set_catalog 
+            WHERE set_name LIKE '%Neo Destiny%' AND card_number LIKE '%90%' AND language = 'English';
+        """)
+        cursor.execute("""
+            UPDATE OR IGNORE master_set_catalog 
+            SET card_number = '91/105',
+                image_url = 'dashboard/static/cards/vulpix_neo_destiny_90_105.jpg'
+            WHERE set_name LIKE '%Neo Destiny%' AND card_number LIKE '%90%';
+        """)
+
+        # Ensure all cameo cards are accurately flagged with is_cameo = 1
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET is_cameo = 1
+            WHERE card_name LIKE '%cameo%'
+               OR notes LIKE '%cameo%'
+               OR card_name LIKE '%pikachu%'
+               OR card_name LIKE '%poncho%'
+               OR set_name LIKE '%Rumble%'
+               OR set_name LIKE '%Scramble%'
+               OR card_name NOT LIKE '%vulpix%';
+        """)
+
 
         _seed_master_cards_if_missing(cursor)
         _seed_pricecharting_benchmarks(cursor)
@@ -1924,9 +1993,11 @@ def load_master_catalog_df() -> pd.DataFrame:
     return df_master
 
 
-def get_master_set_metrics() -> Dict[str, Any]:
+def get_master_set_metrics(exclude_cameos: bool = False) -> Dict[str, Any]:
     """Calculates Master Set completion percentages and cost-to-complete estimates."""
     df_master = load_master_catalog_df()
+    if not df_master.empty and exclude_cameos and "is_cameo" in df_master.columns:
+        df_master = df_master[df_master["is_cameo"] != 1]
     if df_master.empty:
         return {
             "total_cards": 0,
@@ -2064,6 +2135,7 @@ def get_consolidated_release_groups(df_master: pd.DataFrame) -> List[Dict[str, A
             "max_raw_price": max_raw,
             "min_grade10_price": min_g10,
             "max_grade10_price": max_g10,
+            "is_cameo": bool(any(r.get("is_cameo") == 1 for r in rows)),
             "variants": variant_items,
         })
 
