@@ -33,6 +33,7 @@ from db_utils import (
 from metadata_resolver import DEFAULT_CARD_BACK_IMAGE
 from styles import (
     apply_custom_styles,
+    clean_html,
     get_edition_badge_html,
     get_grading_badge_html,
     get_pop_badge_html,
@@ -498,20 +499,20 @@ else:
                         if row.get("is_upgrade_candidate"):
                             target_val = float(row.get("est_grade10_target") or 0.0)
                             u_delta = float(row.get("upgrade_value_delta") or 0.0)
-                            st.markdown(f"""
+                            st.markdown(clean_html(f"""
                             <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 8px 12px; margin: 8px 0;">
                                 <div style="font-weight: 700; color: #f59e0b; font-size: 0.85rem;">🔄 Upgrade Candidate</div>
                                 <div style="font-size: 0.82rem; color: #cbd5e1;">Target: <strong>CGC Pristine 10 / PSA 10</strong></div>
                                 <div style="font-size: 0.82rem; color: #ffd591;">Est. Pristine Value: <strong>${target_val:,.2f}</strong> (+${u_delta:,.2f} gain)</div>
                             </div>
-                            """, unsafe_allow_html=True)
+                            """), unsafe_allow_html=True)
                         elif int(row.get("is_raw") or 0) == 0 and float(row.get("grade") or 0) >= 10.0:
-                            st.markdown(f"""
+                            st.markdown(clean_html(f"""
                             <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 8px 12px; margin: 8px 0;">
                                 <div style="font-weight: 700; color: #10b981; font-size: 0.85rem;">👑 Peak Grade Achieved</div>
                                 <div style="font-size: 0.82rem; color: #cbd5e1;">{row['grading_company']} {row['grade_label']} Slab</div>
                             </div>
-                            """, unsafe_allow_html=True)
+                            """), unsafe_allow_html=True)
 
                         p_g10 = int(row.get("pop_grade10") or 0)
                         p_p10 = int(row.get("pop_pristine10") or 0)
@@ -529,13 +530,13 @@ else:
                         c_raw_url = generate_ebay_search_url(row["card_name"], row["set_name"], row["card_number"], is_raw=True)
                         c_g10_url = generate_ebay_search_url(row["card_name"], row["set_name"], row["card_number"], grade_tier="PSA 10")
                         c_pc_url = get_pricecharting_search_url(row["card_name"], row["set_name"], row["card_number"])
-                        st.markdown(f"""
+                        st.markdown(clean_html(f"""
                         <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
                             <a href="{c_raw_url}" target="_blank" style="font-size: 0.75rem; color: #60a5fa; text-decoration: none; background: #181920; padding: 3px 8px; border-radius: 4px; border: 1px solid #334155;">🔍 Raw Comps ↗</a>
                             <a href="{c_g10_url}" target="_blank" style="font-size: 0.75rem; color: #f59e0b; text-decoration: none; background: #181920; padding: 3px 8px; border-radius: 4px; border: 1px solid #334155;">💎 PSA 10 Comps ↗</a>
                             <a href="{c_pc_url}" target="_blank" style="font-size: 0.75rem; color: #10b981; text-decoration: none; background: #181920; padding: 3px 8px; border-radius: 4px; border: 1px solid #334155;">📊 Charting ↗</a>
                         </div>
-                        """, unsafe_allow_html=True)
+                        """), unsafe_allow_html=True)
     else:
         # Table / List View
         df_display_tbl = page_col_df.copy()

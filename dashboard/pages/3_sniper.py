@@ -13,7 +13,7 @@ from db_utils import (
     get_sniper_watchlist_df,
     parse_ebay_url_details,
 )
-from styles import apply_custom_styles, render_header
+from styles import apply_custom_styles, clean_html, render_header
 
 import time
 
@@ -124,7 +124,7 @@ with st.expander("➕ Add eBay Auction by Link / Item ID", expanded=True):
         tot_price_display = parsed.get("total_price", 0.0)
         disc_display = parsed.get("discount_percentage", 0.0)
 
-        st.markdown(f"""
+        st.markdown(clean_html(f"""
         <div style="background: #181920; border: 1px solid rgba(255, 122, 69, 0.3); border-radius: 10px; padding: 14px 18px; margin: 12px 0;">
             <div style="font-weight: 800; font-size: 1.05rem; color: #ffffff;">{parsed.get('title', 'eBay Auction')}</div>
             <div style="color: #8c8d9a; font-size: 0.85rem; margin-bottom: 8px;">
@@ -137,7 +137,7 @@ with st.expander("➕ Add eBay Auction by Link / Item ID", expanded=True):
                 <div>Current Discount: <strong style="color: #4ade80;">{disc_display:.1f}% OFF</strong></div>
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
 
         if st.button("🚀 Confirm & Add to Sniper Watchlist", key="btn_confirm_add_sniper", type="primary"):
             t0 = time.perf_counter()
@@ -203,7 +203,7 @@ SNIPING
 </a>
 </div>
 </div>"""
-        st.markdown(s_box, unsafe_allow_html=True)
+        st.markdown(clean_html(s_box), unsafe_allow_html=True)
         if st.button("🗑️ Remove from Watchlist", key=f"del_sn_{s_id}"):
             t0 = time.perf_counter()
             delete_from_sniper_watchlist(s_id)

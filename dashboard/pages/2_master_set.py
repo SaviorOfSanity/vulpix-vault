@@ -1,6 +1,6 @@
 """
 The Vulpix Vault - Page 2: Master Set Checklist & Catalog
-Curated collector catalog, 4x4 binder sheet grid, sketchbook card inspection modal,
+Curated collector catalog, 4x4 binder sheet grid, modern collector card inspection modal,
 smart filtering, and Google Sheets sync.
 """
 
@@ -33,6 +33,7 @@ from db_utils import (
 from metadata_resolver import DEFAULT_CARD_BACK_IMAGE
 from styles import (
     apply_custom_styles,
+    clean_html,
     get_edition_badge_html,
     get_pop_badge_html,
     render_header,
@@ -85,73 +86,71 @@ additional_variants = max(0, len(df_count_base) - unique_printings)
 total_master_count = len(df_count_base)
 
 # =========================================================
-# PokeCottage-Style Editorial Header & Valuation Breakdown
+# Editorial Header & Valuation Breakdown (Obsidian & Gold)
 # =========================================================
-cameo_sub_badge = ' <span style="font-size: 0.74rem; font-weight: 600; color: #8da693; background: #162b1b; padding: 2px 8px; border-radius: 6px; border: 1px solid #23452b;">Cameos Excluded</span>' if exclude_cameos else ""
+cameo_sub_badge = ' <span style="font-size: 0.74rem; font-weight: 600; color: #94a3b8; background: #1a202c; padding: 2px 8px; border-radius: 6px; border: 1px solid #2d3748;">Cameos Excluded</span>' if exclude_cameos else ""
 
-st.markdown(
-    f"""
-    <div class="cottage-hero">
-        <h2 class="cottage-hero-title">Vulpix Master Set Card Count</h2>
-        
-        <div class="cottage-stats-grid">
-            <div class="cottage-stat-item">
-                <div class="cottage-stat-label">ENGLISH</div>
-                <div class="cottage-stat-val">{english_count} cards</div>
-            </div>
-            <div class="cottage-stat-item">
-                <div class="cottage-stat-label">JAPANESE</div>
-                <div class="cottage-stat-val">{japanese_count} cards</div>
-            </div>
-            <div class="cottage-stat-item">
-                <div class="cottage-stat-label">S. CHINESE</div>
-                <div class="cottage-stat-val">{chinese_count} cards</div>
-            </div>
-            <div class="cottage-stat-item">
-                <div class="cottage-stat-label">PROMOS</div>
-                <div class="cottage-stat-val">{promo_count} cards</div>
-            </div>
-            <div class="cottage-stat-item">
-                <div class="cottage-stat-label">UNIQUE PRINTINGS</div>
-                <div class="cottage-stat-val">{unique_printings} cards</div>
-            </div>
-            <div class="cottage-stat-item">
-                <div class="cottage-stat-label">ADDITIONAL VARIANTS</div>
-                <div class="cottage-stat-val">{additional_variants} cards</div>
-            </div>
+hero_html = f"""
+<div class="cottage-hero">
+    <h2 class="cottage-hero-title">Vulpix Master Set Card Count</h2>
+    
+    <div class="cottage-stats-grid">
+        <div class="cottage-stat-item">
+            <div class="cottage-stat-label">ENGLISH</div>
+            <div class="cottage-stat-val">{english_count} cards</div>
         </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <div style="font-family: 'Fraunces', Georgia, serif; font-size: 1.25rem; font-weight: 700; color: #f5f2eb;">
-                Master Set Progress{cameo_sub_badge}
-            </div>
-            <div style="font-family: 'Fraunces', Georgia, serif; font-size: 1.5rem; font-weight: 700; color: #34d399;">
-                {master_metrics['completion_pct']}%
-            </div>
+        <div class="cottage-stat-item">
+            <div class="cottage-stat-label">JAPANESE</div>
+            <div class="cottage-stat-val">{japanese_count} cards</div>
         </div>
-
-        <div class="progress-bar-bg">
-            <div class="progress-bar-fill" style="width: {master_metrics['completion_pct']}%;"></div>
+        <div class="cottage-stat-item">
+            <div class="cottage-stat-label">S. CHINESE</div>
+            <div class="cottage-stat-val">{chinese_count} cards</div>
         </div>
-
-        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #9cb3a2; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
-            <span>Owned: <strong style="color: #f5f2eb;">{master_metrics['owned_cards']}</strong> / {master_metrics['total_cards']} Unique</span>
-            <span>Missing: <strong style="color: #f87171;">{master_metrics['missing_cards']}</strong> cards</span>
-            <span>Est. Raw Finish Cost: <strong style="color: #fde047;">${master_metrics['cost_to_complete_raw']:,.2f}</strong></span>
-            <span>Est. Grade 10 Finish Cost: <strong style="color: #d4af37;">${master_metrics['cost_to_complete_grade10']:,.2f}</strong></span>
-            <span>Total Value: <strong style="color: #34d399;">${master_metrics['total_raw_value']:,.2f} Raw</strong> • <strong style="color: #d4af37;">${master_metrics['total_grade10_value']:,.2f} PSA 10</strong></span>
+        <div class="cottage-stat-item">
+            <div class="cottage-stat-label">PROMOS</div>
+            <div class="cottage-stat-val">{promo_count} cards</div>
         </div>
-
-        <div style="margin-top: 24px;">
-            <div class="cottage-oval-banner">
-                <span>How Many Cards Are in the Vulpix Master Set?</span>
-                <span class="cottage-oval-pill">{total_master_count} cards</span>
-            </div>
+        <div class="cottage-stat-item">
+            <div class="cottage-stat-label">UNIQUE PRINTINGS</div>
+            <div class="cottage-stat-val">{unique_printings} cards</div>
+        </div>
+        <div class="cottage-stat-item">
+            <div class="cottage-stat-label">ADDITIONAL VARIANTS</div>
+            <div class="cottage-stat-val">{additional_variants} cards</div>
         </div>
     </div>
-    """,
-    unsafe_allow_html=True,
-)
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-size: 1.25rem; font-weight: 700; color: #f8fafc;">
+            Master Set Progress{cameo_sub_badge}
+        </div>
+        <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-size: 1.5rem; font-weight: 700; color: #10b981;">
+            {master_metrics['completion_pct']}%
+        </div>
+    </div>
+
+    <div class="progress-bar-bg">
+        <div class="progress-bar-fill" style="width: {master_metrics['completion_pct']}%;"></div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #94a3b8; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+        <span>Owned: <strong style="color: #f8fafc;">{master_metrics['owned_cards']}</strong> / {master_metrics['total_cards']} Unique</span>
+        <span>Missing: <strong style="color: #f87171;">{master_metrics['missing_cards']}</strong> cards</span>
+        <span>Est. Raw Finish Cost: <strong style="color: #fbbf24;">${master_metrics['cost_to_complete_raw']:,.2f}</strong></span>
+        <span>Est. Grade 10 Finish Cost: <strong style="color: #f59e0b;">${master_metrics['cost_to_complete_grade10']:,.2f}</strong></span>
+        <span>Total Value: <strong style="color: #34d399;">${master_metrics['total_raw_value']:,.2f} Raw</strong> • <strong style="color: #fbbf24;">${master_metrics['total_grade10_value']:,.2f} PSA 10</strong></span>
+    </div>
+
+    <div style="margin-top: 24px;">
+        <div class="cottage-oval-banner">
+            <span>How Many Cards Are in the Vulpix Master Set?</span>
+            <span class="cottage-oval-pill">{total_master_count} cards</span>
+        </div>
+    </div>
+</div>
+"""
+st.markdown(clean_html(hero_html), unsafe_allow_html=True)
 
 # Metadata Verification & Auto-Enrichment Controls
 en_col1, en_col2, en_col3, en_col4 = st.columns([1.8, 1.1, 1.1, 1.2])
@@ -265,13 +264,13 @@ with v_top1:
     )
 
 # =========================================================
-# Sketchbook Card Detail Dialog (Image 3)
+# Collector Showcase Card Detail Dialog
 # =========================================================
 dialog_fn = getattr(st, "dialog", getattr(st, "experimental_dialog", None))
 
 
 def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
-    """Renders the parchment graph paper card detail dialog matching Image 3."""
+    """Renders the sleek obsidian collector showcase card detail dialog."""
     matches = active_df[active_df["id"] == card_id]
     if matches.empty:
         st.warning("Card not found in active filtered view.")
@@ -293,19 +292,17 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
         else:
             st.caption("First Card")
     with nav_c2:
-        st.markdown(
-            f"""
-            <div style="text-align: center;">
-                <div style="font-family: 'Fraunces', Georgia, serif; font-style: italic; font-size: 1.7rem; font-weight: 700; color: #122215; margin: 0;">
-                    {row['card_name']}
-                </div>
-                <div style="font-size: 0.72rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: #855b2e;">
-                    {row['set_name']} • {row['language']} • ({curr_idx + 1} / {total_in_view})
-                </div>
+        top_title_html = f"""
+        <div style="text-align: center;">
+            <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-style: italic; font-size: 1.7rem; font-weight: 700; color: #f8fafc; margin: 0;">
+                {row['card_name']}
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            <div style="font-size: 0.76rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: #f59e0b;">
+                {row['set_name']} • {row['language']} • ({curr_idx + 1} / {total_in_view})
+            </div>
+        </div>
+        """
+        st.markdown(clean_html(top_title_html), unsafe_allow_html=True)
     with nav_c3:
         if curr_idx < total_in_view - 1:
             next_id = id_list[curr_idx + 1]
@@ -315,7 +312,7 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
         else:
             st.caption("Last Card")
 
-    # Main Sketchbook Parchment Grid Canvas
+    # Main Showcase Canvas
     img_src = get_card_image_data_uri(row["image_url"] if row["image_url"] else DEFAULT_CARD_BACK_IMAGE)
     artist_name = row.get("artist") or "Ken Sugimori"
     finish_style = row.get("finish") or row.get("edition") or "Standard"
@@ -326,66 +323,60 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
     if row.get("notes") and len(str(row["notes"]).strip()) > 5:
         collector_note = str(row["notes"]).strip()
     else:
-        collector_note = f"This card was released in the {row['language']} {row['set_name']} expansion ({row['release_year']}) featuring art by {artist_name}."
+        collector_note = f"Released in the {row['language']} {row['set_name']} expansion ({row['release_year']}) featuring original artwork by {artist_name}."
 
     st.markdown('<div class="sketchbook-modal">', unsafe_allow_html=True)
     b_col1, b_col2, b_col3 = st.columns([1, 1.4, 1])
 
     with b_col1:
-        st.markdown(
-            f"""
-            <div style="padding: 12px 0;">
-                <div class="sketchbook-annot-label">CARD NUMBER</div>
-                <div class="sketchbook-annot-val">{cnum_display}</div>
-                
-                <div class="sketchbook-annot-label">ILLUSTRATOR</div>
-                <div class="sketchbook-annot-val">{artist_name}</div>
-                
-                <div class="sketchbook-annot-label">RELEASE YEAR</div>
-                <div class="sketchbook-annot-val">{row['release_year']}</div>
-                
-                <div class="sketchbook-annot-label">LANGUAGE</div>
-                <div class="sketchbook-annot-val">{row['language']}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        col1_html = f"""
+        <div style="padding: 12px 0;">
+            <div class="sketchbook-annot-label">CARD NUMBER</div>
+            <div class="sketchbook-annot-val">{cnum_display}</div>
+            
+            <div class="sketchbook-annot-label">ILLUSTRATOR</div>
+            <div class="sketchbook-annot-val">{artist_name}</div>
+            
+            <div class="sketchbook-annot-label">RELEASE YEAR</div>
+            <div class="sketchbook-annot-val">{row['release_year']}</div>
+            
+            <div class="sketchbook-annot-label">LANGUAGE</div>
+            <div class="sketchbook-annot-val">{row['language']}</div>
+        </div>
+        """
+        st.markdown(clean_html(col1_html), unsafe_allow_html=True)
 
     with b_col2:
-        st.markdown(
-            f"""
-            <div style="text-align: center; padding: 6px 0;">
-                <img src="{img_src}" style="max-height: 380px; max-width: 100%; border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,0.5);" />
-                <div style="font-size: 0.72rem; color: #7d9683; font-style: italic; margin-top: 8px;">
-                    *Official verified scan from Pokémon TCG master catalog.
-                </div>
+        col2_html = f"""
+        <div style="text-align: center; padding: 6px 0;">
+            <img src="{img_src}" style="max-height: 380px; max-width: 100%; border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.08);" />
+            <div style="font-size: 0.72rem; color: #94a3b8; font-style: italic; margin-top: 8px;">
+                Verified Pokémon TCG master scan
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        </div>
+        """
+        st.markdown(clean_html(col2_html), unsafe_allow_html=True)
 
     with b_col3:
-        st.markdown(
-            f"""
-            <div style="padding: 12px 0;">
-                <div class="sketchbook-annot-label">RARITY</div>
-                <div class="sketchbook-annot-val">{rarity_name}</div>
-                
-                <div class="sketchbook-annot-label">FINISH</div>
-                <div class="sketchbook-annot-val">{finish_style}</div>
-                
-                <div class="sketchbook-annot-label">COLLECTOR'S NOTE</div>
-                <div class="sketchbook-handwritten">
-                    "{collector_note}"
-                </div>
+        col3_html = f"""
+        <div style="padding: 12px 0;">
+            <div class="sketchbook-annot-label">RARITY</div>
+            <div class="sketchbook-annot-val">{rarity_name}</div>
+            
+            <div class="sketchbook-annot-label">FINISH</div>
+            <div class="sketchbook-annot-val">{finish_style}</div>
+            
+            <div class="sketchbook-annot-label">COLLECTOR'S NOTE</div>
+            <div class="sketchbook-note-card">
+                "{collector_note}"
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        </div>
+        """
+        st.markdown(clean_html(col3_html), unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Bottom Dark Forest Bar: Set, Valuation & Direct Links
+    # Bottom Sleek Bar: Set, Valuation & Direct Links
     raw_ebay_url = generate_ebay_search_url(
         card_name=row["card_name"],
         set_name=row["set_name"],
@@ -397,28 +388,26 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
     pc_url = row.get("pricecharting_url") or get_pricecharting_search_url(row["card_name"], row["set_name"], row["card_number"])
     tcg_url = row.get("tcgplayer_url") or f"https://www.tcgplayer.com/search/pokemon/product?q={row['card_name']}+{row['set_name']}"
 
-    st.markdown(
-        f"""
-        <div class="sketchbook-footer-bar">
-            <div>
-                <div style="font-size: 0.68rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: #8da693;">SET</div>
-                <div style="font-family: 'Fraunces', Georgia, serif; font-style: italic; font-size: 1.15rem; font-weight: 700; color: #f5f2eb;">{row['set_name']}</div>
-            </div>
-            <div>
-                <div style="font-size: 0.68rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: #8da693;">MARKET PRICE</div>
-                <div style="font-family: 'Fraunces', Georgia, serif; font-size: 1.2rem; font-weight: 700; color: #d4af37;">
-                    Raw: ${row['est_raw_price']:,.2f} • PSA 10: ${row['est_grade10_price']:,.2f}
-                </div>
-            </div>
-            <div style="display: flex; gap: 8px;">
-                <a href="{raw_ebay_url}" target="_blank" class="btn-ebay">🛒 Buy on eBay</a>
-                <a href="{tcg_url}" target="_blank" class="btn-tcg">📦 Buy on TCGPlayer</a>
-                <a href="{pc_url}" target="_blank" class="btn-pc">📊 Comps</a>
+    footer_html = f"""
+    <div class="sketchbook-footer-bar">
+        <div>
+            <div style="font-size: 0.68rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: #94a3b8;">SET</div>
+            <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-style: italic; font-size: 1.15rem; font-weight: 700; color: #f8fafc;">{row['set_name']}</div>
+        </div>
+        <div>
+            <div style="font-size: 0.68rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: #94a3b8;">MARKET PRICE</div>
+            <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-size: 1.2rem; font-weight: 700; color: #fbbf24;">
+                Raw: ${row['est_raw_price']:,.2f} • PSA 10: ${row['est_grade10_price']:,.2f}
             </div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        <div style="display: flex; gap: 8px;">
+            <a href="{raw_ebay_url}" target="_blank" class="btn-ebay">🛒 Buy on eBay</a>
+            <a href="{tcg_url}" target="_blank" class="btn-tcg">📦 Buy on TCGPlayer</a>
+            <a href="{pc_url}" target="_blank" class="btn-pc">📊 Comps</a>
+        </div>
+    </div>
+    """
+    st.markdown(clean_html(footer_html), unsafe_allow_html=True)
 
     # Collection Status & Toggle
     is_owned = bool(row["is_owned"])
@@ -456,7 +445,7 @@ def render_sketchbook_modal_content(card_id: int, active_df: pd.DataFrame):
 
 
 if dialog_fn:
-    @dialog_fn("Vulpix Collector's Field Guide", width="large")
+    @dialog_fn("Vulpix Collector's Showcase", width="large")
     def show_card_dialog(card_id: int, active_df: pd.DataFrame):
         render_sketchbook_modal_content(card_id, active_df)
 else:
@@ -470,7 +459,7 @@ if st.session_state.get("modal_card_id") is not None:
     show_card_dialog(st.session_state["modal_card_id"], filtered_master)
 
 # =========================================================
-# Layout Mode 1: 4x4 Collector Binder (Image 2)
+# Layout Mode 1: 4x4 Collector Binder (Default)
 # =========================================================
 if "Binder" in master_view_mode:
     with v_top1:
@@ -512,7 +501,7 @@ if "Binder" in master_view_mode:
             is_owned = bool(row["is_owned"])
             owned_cls = "owned-card" if is_owned else ""
             status_badge = (
-                '<span style="background: rgba(16, 185, 129, 0.22); border: 1px solid #10b981; color: #6ee7b7; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">✅ OWNED</span>'
+                '<span style="background: rgba(16, 185, 129, 0.18); border: 1px solid #10b981; color: #6ee7b7; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">✅ OWNED</span>'
                 if is_owned
                 else '<span style="background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #fca5a5; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.72rem;">❌ MISSING</span>'
             )
@@ -525,32 +514,30 @@ if "Binder" in master_view_mode:
             card_num_display = f"#{row['card_number']}" if row['card_number'] and str(row['card_number']).lower() != "nan" else "(Promo)"
             cameo_badge = '<span style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.4); border-radius: 4px; padding: 1px 6px; font-size: 0.68rem; font-weight: 700;">🎭 Cameo</span>' if row.get("is_cameo") == 1 else ""
 
-            st.markdown(
-                f"""
-                <div class="binder-card-sleeve {owned_cls}">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <span style="font-size: 0.76rem; font-weight: 700; color: #8da693;">{reg_icon} {row['release_year']}</span>
-                        <div style="display: flex; gap: 4px; align-items: center;">{cameo_badge} {status_badge}</div>
-                    </div>
-                    <div style="text-align: center; margin: 6px 0;">
-                        <a href="?inspect={row['id']}" target="_self">
-                            <img src="{img_src}" class="binder-card-img" title="Click to inspect {row['card_name']}" />
-                        </a>
-                    </div>
-                    <div style="font-family: 'Fraunces', Georgia, serif; font-weight: 700; font-size: 0.95rem; color: #f5f2eb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px;">
-                        {row['card_name']}
-                    </div>
-                    <div style="color: #8da693; font-size: 0.74rem; margin-bottom: 6px;">
-                        {row['set_name']} • {card_num_display}
-                    </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 0.74rem; background: rgba(0,0,0,0.25); padding: 4px 8px; border-radius: 6px; margin-bottom: 8px;">
-                        <span style="color: #9cb3a2;">Raw: <strong style="color: #fde047;">${row['est_raw_price']:,.2f}</strong></span>
-                        <span style="color: #9cb3a2;">PSA 10: <strong style="color: #d4af37;">${row['est_grade10_price']:,.2f}</strong></span>
-                    </div>
+            card_sleeve_html = f"""
+            <div class="binder-card-sleeve {owned_cls}">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-size: 0.76rem; font-weight: 700; color: #94a3b8;">{reg_icon} {row['release_year']}</span>
+                    <div style="display: flex; gap: 4px; align-items: center;">{cameo_badge} {status_badge}</div>
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                <div style="text-align: center; margin: 6px 0;">
+                    <a href="?inspect={row['id']}" target="_self">
+                        <img src="{img_src}" class="binder-card-img" title="Click to inspect {row['card_name']}" />
+                    </a>
+                </div>
+                <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-weight: 700; font-size: 0.95rem; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px;">
+                    {row['card_name']}
+                </div>
+                <div style="color: #94a3b8; font-size: 0.74rem; margin-bottom: 6px;">
+                    {row['set_name']} • {card_num_display}
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.74rem; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 6px; margin-bottom: 8px;">
+                    <span style="color: #94a3b8;">Raw: <strong style="color: #fbbf24;">${row['est_raw_price']:,.2f}</strong></span>
+                    <span style="color: #94a3b8;">PSA 10: <strong style="color: #f59e0b;">${row['est_grade10_price']:,.2f}</strong></span>
+                </div>
+            </div>
+            """
+            st.markdown(clean_html(card_sleeve_html), unsafe_allow_html=True)
 
             # Direct Button to Inspect Card
             if st.button("🔍 Inspect Card", key=f"binder_btn_{row['id']}", use_container_width=True):
@@ -591,15 +578,15 @@ elif "Consolidated" in master_view_mode:
         owned_cnt = rel["owned_variants"]
         total_cnt = rel["total_variants"]
         pct = rel["completion_pct"]
-        prog_color = "#10b981" if owned_cnt == total_cnt and total_cnt > 0 else ("#34d399" if owned_cnt > 0 else "#8da693")
+        prog_color = "#10b981" if owned_cnt == total_cnt and total_cnt > 0 else ("#34d399" if owned_cnt > 0 else "#94a3b8")
 
         # Build Language Chips
         lang_chips = []
         for l in rel["all_languages"]:
             if l in rel["owned_languages"]:
-                chip = f'<span style="background: rgba(16, 185, 129, 0.22); color: #34d399; border: 1px solid #10b981; font-weight: 700; padding: 3px 10px; border-radius: 12px; font-size: 0.76rem; display: inline-flex; align-items: center; gap: 4px;">✅ {l}</span>'
+                chip = f'<span style="background: rgba(16, 185, 129, 0.18); color: #34d399; border: 1px solid #10b981; font-weight: 700; padding: 3px 10px; border-radius: 12px; font-size: 0.76rem; display: inline-flex; align-items: center; gap: 4px;">✅ {l}</span>'
             else:
-                chip = f'<span style="background: #152618; color: #6b7280; border: 1px solid #23452b; padding: 3px 10px; border-radius: 12px; font-size: 0.76rem; display: inline-flex; align-items: center; opacity: 0.65;">{l}</span>'
+                chip = f'<span style="background: #1a202e; color: #64748b; border: 1px solid #283347; padding: 3px 10px; border-radius: 12px; font-size: 0.76rem; display: inline-flex; align-items: center; opacity: 0.7;">{l}</span>'
             lang_chips.append(chip)
         lang_chips_html = " ".join(lang_chips)
 
@@ -608,9 +595,9 @@ elif "Consolidated" in master_view_mode:
         for v in rel["variants"]:
             if v["is_owned"]:
                 det = f' <span style="background: rgba(0,0,0,0.35); padding: 1px 6px; border-radius: 8px; font-size: 0.68rem; color: #a7f3d0;">{v["owned_details"]}</span>' if v["owned_details"] != "None" else ""
-                chip = f'<span style="background: linear-gradient(135deg, rgba(6, 95, 70, 0.9), rgba(4, 120, 87, 0.9)); color: #ecfdf5; border: 1px solid #10b981; font-weight: 700; padding: 4px 10px; border-radius: 12px; font-size: 0.76rem; display: inline-flex; align-items: center; gap: 4px;">✅ {v["display_label"]}{det}</span>'
+                chip = f'<span style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.8), rgba(5, 150, 105, 0.8)); color: #ecfdf5; border: 1px solid #10b981; font-weight: 700; padding: 4px 10px; border-radius: 12px; font-size: 0.76rem; display: inline-flex; align-items: center; gap: 4px;">✅ {v["display_label"]}{det}</span>'
             else:
-                chip = f'<span style="background: #112215; color: #7d9683; border: 1px solid #1c3623; padding: 4px 10px; border-radius: 12px; font-size: 0.76rem; display: inline-flex; align-items: center; opacity: 0.75;">{v["display_label"]}</span>'
+                chip = f'<span style="background: #161b26; color: #94a3b8; border: 1px solid #242c3d; padding: 4px 10px; border-radius: 12px; font-size: 0.76rem; display: inline-flex; align-items: center; opacity: 0.8;">{v["display_label"]}</span>'
             var_chips.append(chip)
         var_chips_html = " ".join(var_chips)
 
@@ -619,52 +606,50 @@ elif "Consolidated" in master_view_mode:
         cnum_lbl = f"#{rel['card_number']}" if rel['card_number'] and str(rel['card_number']).lower() != "nan" else "(Promo)"
         cameo_pill = '<span style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.4); border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; font-weight: 800; margin-left: 8px;">🎭 CAMEO</span>' if rel.get("is_cameo") else ""
 
-        st.markdown(
-            f"""
-            <div class="slab-box" style="padding: 18px 22px; margin-bottom: 18px;">
-                <div style="display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;">
-                    <div style="flex-shrink: 0; text-align: center; width: 130px;">
-                        <img src="{img_src}" style="max-height: 180px; max-width: 130px; border-radius: 8px; box-shadow: 0 8px 18px rgba(0,0,0,0.5);" />
-                        <div style="margin-top: 8px; font-size: 0.75rem; color: #8da693; font-weight: 700;">{rel['release_year']}</div>
+        rel_box_html = f"""
+        <div class="slab-box" style="padding: 18px 22px; margin-bottom: 18px;">
+            <div style="display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;">
+                <div style="flex-shrink: 0; text-align: center; width: 130px;">
+                    <img src="{img_src}" style="max-height: 180px; max-width: 130px; border-radius: 8px; box-shadow: 0 8px 18px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.08);" />
+                    <div style="margin-top: 8px; font-size: 0.75rem; color: #94a3b8; font-weight: 700;">{rel['release_year']}</div>
+                </div>
+                <div style="flex: 1; min-width: 260px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; flex-wrap: wrap; gap: 8px;">
+                        <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-size: 1.35rem; font-weight: 700; color: #f8fafc;">
+                            {rel['card_name']}{cameo_pill}
+                        </div>
+                        <div style="font-family: 'Fraunces', 'Plus Jakarta Sans', Georgia, serif; font-size: 1.15rem; font-weight: 700; color: {prog_color};">
+                            {owned_cnt} / {total_cnt} Variants Owned ({pct}%)
+                        </div>
                     </div>
-                    <div style="flex: 1; min-width: 260px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; flex-wrap: wrap; gap: 8px;">
-                            <div style="font-family: 'Fraunces', Georgia, serif; font-size: 1.35rem; font-weight: 700; color: #f5f2eb;">
-                                {rel['card_name']}{cameo_pill}
-                            </div>
-                            <div style="font-family: 'Fraunces', Georgia, serif; font-size: 1.15rem; font-weight: 700; color: {prog_color};">
-                                {owned_cnt} / {total_cnt} Variants Owned ({pct}%)
-                            </div>
+                    <div style="color: #94a3b8; font-size: 0.88rem; margin-bottom: 12px;">
+                        <strong>{rel['set_name']}</strong> • {cnum_lbl}
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.72rem; font-weight: 800; letter-spacing: 1px; color: #94a3b8; text-transform: uppercase; margin-bottom: 6px;">
+                            🌐 Languages:
                         </div>
-                        <div style="color: #9cb3a2; font-size: 0.88rem; margin-bottom: 12px;">
-                            <strong>{rel['set_name']}</strong> • {cnum_lbl}
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                            {lang_chips_html}
                         </div>
-                        <div style="margin-bottom: 12px;">
-                            <div style="font-size: 0.72rem; font-weight: 800; letter-spacing: 1px; color: #8da693; text-transform: uppercase; margin-bottom: 6px;">
-                                🌐 Languages:
-                            </div>
-                            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                                {lang_chips_html}
-                            </div>
+                    </div>
+                    <div style="margin-bottom: 14px;">
+                        <div style="font-size: 0.72rem; font-weight: 800; letter-spacing: 1px; color: #94a3b8; text-transform: uppercase; margin-bottom: 6px;">
+                            🏷️ Variants & Editions:
                         </div>
-                        <div style="margin-bottom: 14px;">
-                            <div style="font-size: 0.72rem; font-weight: 800; letter-spacing: 1px; color: #8da693; text-transform: uppercase; margin-bottom: 6px;">
-                                🏷️ Variants & Editions:
-                            </div>
-                            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                                {var_chips_html}
-                            </div>
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                            {var_chips_html}
                         </div>
-                        <div style="display: flex; gap: 20px; font-size: 0.82rem; color: #9cb3a2;">
-                            <span>Est Raw: <strong style="color: #fde047;">{raw_range}</strong></span>
-                            <span>Est PSA 10: <strong style="color: #d4af37;">{g10_range}</strong></span>
-                        </div>
+                    </div>
+                    <div style="display: flex; gap: 20px; font-size: 0.82rem; color: #94a3b8;">
+                        <span>Est Raw: <strong style="color: #fbbf24;">{raw_range}</strong></span>
+                        <span>Est PSA 10: <strong style="color: #f59e0b;">{g10_range}</strong></span>
                     </div>
                 </div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        </div>
+        """
+        st.markdown(clean_html(rel_box_html), unsafe_allow_html=True)
 
         with st.expander(f"🔍 View {len(rel['variants'])} Specific Variants & Comps for {rel['card_name']} ({rel['set_name']})"):
             for v in rel["variants"]:

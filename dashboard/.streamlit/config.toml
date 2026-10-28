@@ -8,8 +8,8 @@ address = "0.0.0.0"
 gatherUsageStats = false
 
 [theme]
-primaryColor = "#d4af37"
-backgroundColor = "#0c170f"
-secondaryBackgroundColor = "#132417"
-textColor = "#f5f2eb"
-font = "serif"
+primaryColor = "#f59e0b"
+backgroundColor = "#0a0d14"
+secondaryBackgroundColor = "#131722"
+textColor = "#f8fafc"
+font = "sans serif"

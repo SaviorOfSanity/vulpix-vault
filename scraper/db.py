@@ -495,6 +495,35 @@ def init_db(db_path: Optional[str] = None) -> None:
             WHERE set_name LIKE '%Neo Destiny%' AND (card_number = '37/105' OR master_card_id = 334);
         ''')
 
+        # Fix 1996 Japanese Base Set (Expansion Pack) scans and remove duplicate 282
+        cursor.execute('''
+            UPDATE master_set_catalog
+            SET card_number = '015/102',
+                release_year = 1996,
+                pokecottage_id = '37-jpn_b01-15-normal',
+                pokecottage_url = 'https://pokecottage.com/pokemon-master-sets/vulpix#37-jpn_b01-15-normal',
+                image_url = 'dashboard/static/cards/vulpix-expansion-pack-no-015.jpg',
+                region = 'Japan',
+                artist = 'Ken Sugimori',
+                finish = 'With Rarity Symbol',
+                notes = 'Japan | Original | Expansion Pack (With Rarity Symbol)'
+            WHERE id = 283 OR (set_name = 'Expansion Pack' AND edition = 'With Rarity Symbol');
+        ''')
+        cursor.execute('''
+            UPDATE master_set_catalog
+            SET card_number = '015/102',
+                release_year = 1996,
+                pokecottage_id = '37-jpn_b01-15-noRaritySymbol',
+                image_url = 'dashboard/static/cards/vulpix-expansion-pack-no-015.jpg',
+                region = 'Japan',
+                artist = 'Ken Sugimori',
+                finish = 'No Rarity Symbol',
+                notes = 'Japan | Original | Expansion Pack (No Rarity Symbol)'
+            WHERE id = 701 OR (set_name = 'Expansion Pack' AND (pokecottage_id = '37-jpn_b01-15-noRaritySymbol' OR edition = 'No Rarity Symbol'));
+        ''')
+        cursor.execute("DELETE FROM master_set_catalog WHERE id = 282;")
+
+
 
 
 # =============================================================
