@@ -706,45 +706,53 @@ elif "Consolidated" in master_view_mode:
         with st.expander(f"🔍 View {len(rel['variants'])} Specific Variants & Comps for {rel['card_name']} ({rel['set_name']})"):
             for v in rel["variants"]:
                 vc1, vc2, vc3, vc4, vc5 = st.columns([3, 1.2, 1.2, 1.2, 1.4])
+                v_ed = str(v.get("edition") or "Unlimited")
+                v_lang = str(v.get("language") or "English")
+                v_rarity = str(v.get("rarity") or "Common")
+                v_id = v.get("id")
+                raw_val = float(v.get("est_raw_price") or 0.0)
+                g10_val = float(v.get("est_grade10_price") or 0.0)
+                ed_pill = get_edition_badge_html(v_ed)
+
                 with vc1:
-                    st.markdown(f"**{v['edition']}** ({v['language']}) — {v['rarity']}")
-                    if v["is_owned"]:
-                        st.caption(f"Status: ✅ {v['owned_details']}")
+                    st.markdown(f"{ed_pill} **{v_ed}** ({v_lang}) • *{v_rarity}*", unsafe_allow_html=True)
+                    if v.get("is_owned"):
+                        st.caption(f"Status: ✅ {v.get('owned_details', 'Owned')}")
                     else:
                         st.caption("Status: ❌ Missing")
                 with vc2:
-                    st.metric("Raw", f"${v['est_raw_price']:.2f}" if v['est_raw_price'] > 0 else "—")
+                    st.metric("Raw", f"${raw_val:.2f}" if raw_val > 0 else "—")
                 with vc3:
-                    st.metric("PSA 10", f"${v['est_grade10_price']:.2f}" if v['est_grade10_price'] > 0 else "—")
+                    st.metric("PSA 10", f"${g10_val:.2f}" if g10_val > 0 else "—")
                 with vc4:
                     raw_url = generate_ebay_search_url(
-                        card_name=rel["card_name"],
-                        set_name=rel["set_name"],
-                        card_number=rel["card_number"],
-                        edition=v["edition"],
-                        language=v["language"],
+                        card_name=rel.get("card_name", ""),
+                        set_name=rel.get("set_name", ""),
+                        card_number=rel.get("card_number", ""),
+                        edition=v_ed,
+                        language=v_lang,
                         is_raw=True,
                     )
                     st.markdown(f'<a href="{raw_url}" target="_blank" class="btn-ebay">🛒 eBay</a>', unsafe_allow_html=True)
                 with vc5:
-                    if v["is_owned"]:
-                        if st.button("Unmark", key=f"unmark_{v['id']}", use_container_width=True):
-                            unmark_card_as_owned(v["id"])
+                    if v.get("is_owned"):
+                        if st.button("Unmark", key=f"unmark_{v_id}", use_container_width=True):
+                            unmark_card_as_owned(v_id)
                             st.rerun()
                     else:
-                        if st.button("Mark Owned", key=f"mark_{v['id']}", use_container_width=True):
+                        if st.button("Mark Owned", key=f"mark_{v_id}", use_container_width=True):
                             add_card_to_collection(
-                                card_name=rel["card_name"],
-                                set_name=rel["set_name"],
-                                card_number=rel["card_number"],
+                                card_name=rel.get("card_name", ""),
+                                set_name=rel.get("set_name", ""),
+                                card_number=rel.get("card_number", ""),
                                 grading_company="RAW",
                                 grade=0.0,
-                                purchase_price=v["est_raw_price"] or 1.0,
+                                purchase_price=raw_val or 1.0,
                                 purchase_date=datetime.now().strftime("%Y-%m-%d"),
-                                edition=v["edition"],
-                                language=v["language"],
-                                master_card_id=v["id"],
-                                image_url=rel["image_url"],
+                                edition=v_ed,
+                                language=v_lang,
+                                master_card_id=v_id,
+                                image_url=rel.get("image_url", ""),
                             )
                             st.rerun()
 

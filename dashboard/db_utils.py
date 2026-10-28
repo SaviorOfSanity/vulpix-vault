@@ -2365,6 +2365,9 @@ def get_consolidated_release_groups(df_master: pd.DataFrame) -> List[Dict[str, A
                 "pricecharting_grade10": float(r.get("pricecharting_grade10") or 0.0),
                 "pricecharting_url": str(r.get("pricecharting_url") or ""),
                 "image_url": str(r.get("image_url") or img_url),
+                "rarity": str(r.get("rarity") or "Common"),
+                "finish": str(r.get("finish") or "Standard"),
+                "artist": str(r.get("artist") or "Ken Sugimori"),
             })
 
         # Sort variants: owned first, then 1st edition, then by language
