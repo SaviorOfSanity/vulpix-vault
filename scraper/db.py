@@ -262,15 +262,37 @@ def init_db(db_path: Optional[str] = None) -> None:
 
         # Fix EX Dragon Frontiers Vulpix (#70/101 not Trapinch #69/101)
         cursor.execute("""
-            UPDATE master_set_catalog 
+            DELETE FROM master_set_catalog 
+            WHERE set_name LIKE '%Dragon Frontiers%' AND (card_number LIKE '%69%' OR image_url LIKE '%ex15/69%')
+              AND EXISTS (
+                  SELECT 1 FROM master_set_catalog m2
+                  WHERE m2.set_name LIKE '%Dragon Frontiers%' AND m2.card_number = '70/101'
+                    AND m2.edition = master_set_catalog.edition
+              );
+        """)
+        cursor.execute("""
+            UPDATE OR IGNORE master_set_catalog 
             SET card_number = '70/101',
                 image_url = 'dashboard/static/cards/ex_dragon_frontiers_70.jpg'
+            WHERE set_name LIKE '%Dragon Frontiers%' AND (card_number LIKE '%69%' OR image_url LIKE '%ex15/69%');
+        """)
+        cursor.execute("""
+            DELETE FROM master_set_catalog 
             WHERE set_name LIKE '%Dragon Frontiers%' AND (card_number LIKE '%69%' OR image_url LIKE '%ex15/69%');
         """)
 
         # Fix Sapporo's Pikachu (#005/SM-P not Snorlax-GX #05)
         cursor.execute("""
-            UPDATE master_set_catalog 
+            DELETE FROM master_set_catalog 
+            WHERE (card_name LIKE '%Sapporo%' OR (card_number LIKE '%005/SM-P%' AND (image_url LIKE '%SM05%' OR card_name LIKE '%Pikachu%')))
+              AND EXISTS (
+                  SELECT 1 FROM master_set_catalog m2
+                  WHERE m2.card_name = 'Sapporo''s Pikachu (Vulpix Cameo)' AND m2.card_number = '005/SM-P'
+                    AND m2.id != master_set_catalog.id
+              );
+        """)
+        cursor.execute("""
+            UPDATE OR IGNORE master_set_catalog 
             SET card_name = 'Sapporo''s Pikachu (Vulpix Cameo)',
                 image_url = 'dashboard/static/cards/sapporo_s_pikachu__vulpix_cameo__promo_005_sm-p.jpg',
                 is_cameo = 1
@@ -279,7 +301,16 @@ def init_db(db_path: Optional[str] = None) -> None:
 
         # Fix Poncho-clad Pikachu (Alolan Vulpix Poncho #037/SM-P not Zapdos #37)
         cursor.execute("""
-            UPDATE master_set_catalog 
+            DELETE FROM master_set_catalog 
+            WHERE (card_number LIKE '%037/SM-P%' OR card_name LIKE '%Poncho%Alolan%' OR card_name LIKE '%Special Box%')
+              AND EXISTS (
+                  SELECT 1 FROM master_set_catalog m2
+                  WHERE m2.card_name = 'Poncho-wearing Pikachu (Alolan Vulpix Poncho)' AND m2.card_number = '037/SM-P'
+                    AND m2.id != master_set_catalog.id
+              );
+        """)
+        cursor.execute("""
+            UPDATE OR IGNORE master_set_catalog 
             SET card_name = 'Poncho-wearing Pikachu (Alolan Vulpix Poncho)',
                 set_name = 'Promo',
                 image_url = 'dashboard/static/cards/promo_037_smp.jpg',
@@ -289,7 +320,16 @@ def init_db(db_path: Optional[str] = None) -> None:
 
         # Fix Poncho-wearing Pikachu (Vulpix Poncho #038/SM-P)
         cursor.execute("""
-            UPDATE master_set_catalog 
+            DELETE FROM master_set_catalog 
+            WHERE (card_number LIKE '%038/SM-P%' OR (card_name LIKE '%Poncho%' AND card_name NOT LIKE '%Alolan%'))
+              AND EXISTS (
+                  SELECT 1 FROM master_set_catalog m2
+                  WHERE m2.card_name = 'Poncho-wearing Pikachu (Vulpix Poncho)' AND m2.card_number = '038/SM-P'
+                    AND m2.id != master_set_catalog.id
+              );
+        """)
+        cursor.execute("""
+            UPDATE OR IGNORE master_set_catalog 
             SET card_name = 'Poncho-wearing Pikachu (Vulpix Poncho)',
                 set_name = 'Promo',
                 image_url = 'dashboard/static/cards/promo_038_smp.jpg',
