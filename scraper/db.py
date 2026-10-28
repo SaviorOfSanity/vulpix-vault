@@ -180,6 +180,8 @@ def init_db(db_path: Optional[str] = None) -> None:
             ("tcgplayer_url", "TEXT"),
             ("region", "TEXT DEFAULT 'International'"),
             ("is_cameo", "INTEGER DEFAULT 0"),
+            ("artist", "TEXT"),
+            ("finish", "TEXT DEFAULT 'Standard'"),
         ]:
             _add_column_if_missing(cursor, "master_set_catalog", col, ctype)
 
@@ -368,6 +370,32 @@ def init_db(db_path: Optional[str] = None) -> None:
                OR set_name LIKE '%Scramble%'
                OR card_name NOT LIKE '%vulpix%';
         """)
+# Enrich artist & finish from pokecottage_vulpix.json if available
+        try:
+            import json, os
+            json_path = 'data/pokecottage_vulpix.json'
+            if os.path.exists(json_path):
+                with open(json_path, 'r', encoding='utf-8') as jf:
+                    pc_cards = {item['id']: item for item in json.load(jf).get('cards', [])}
+                cursor.execute("SELECT id, pokecottage_id, card_name, set_name, edition FROM master_set_catalog WHERE artist IS NULL OR finish IS NULL")
+                unpopulated = cursor.fetchall()
+                for cid, pc_id, name, sname, ed in unpopulated:
+                    if pc_id and pc_id in pc_cards:
+                        pc = pc_cards[pc_id]
+                        art = pc.get('artist', {}).get('name', 'Ken Sugimori')
+                        fin = pc.get('variant', ed or 'Standard')
+                        cursor.execute("UPDATE master_set_catalog SET artist = ?, finish = ? WHERE id = ?", (art, fin, cid))
+                    else:
+                        art = 'Ken Sugimori'
+                        if 'Neo Destiny' in str(sname): art = 'Masako Yamashita'
+                        elif 'Emerald' in str(sname) or 'Hidden Legends' in str(sname): art = 'Midori Harada'
+                        elif 'Dragon Frontiers' in str(sname): art = 'Kouki Saitou'
+                        elif 'Platinum' in str(sname): art = 'Kagemaru Himeno'
+                        elif 'Silver Tempest' in str(sname) or '151' in str(sname): art = 'Ryoma Uratsuka'
+                        cursor.execute("UPDATE master_set_catalog SET artist = ?, finish = ? WHERE id = ? AND artist IS NULL", (art, ed or 'Standard', cid))
+        except Exception:
+            pass
+
 
 # Purge phantom SM159 Zapdos promo
         cursor.execute('''
