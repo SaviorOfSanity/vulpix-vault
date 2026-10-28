@@ -20,7 +20,6 @@ POPULATION_BENCHMARKS = {
     "vulpix-base-set-shadowless-68": {"pop_total": 980, "pop_grade10": 142, "pop_pristine10": 8},
     "vulpix-base-set-unlimited-68": {"pop_total": 4200, "pop_grade10": 890, "pop_pristine10": 45},
     "vulpix-base-set-hp-50-error": {"pop_total": 310, "pop_grade10": 48, "pop_pristine10": 3},
-    "erikas-vulpix-gym-heroes-1st-edition-49": {"pop_total": 620, "pop_grade10": 115, "pop_pristine10": 9},
     "brocks-vulpix-gym-heroes-1st-edition-73": {"pop_total": 450, "pop_grade10": 88, "pop_pristine10": 6},
     "light-vulpix-neo-destiny-1st-edition-70": {"pop_total": 780, "pop_grade10": 160, "pop_pristine10": 14},
     "vulpix-legendary-collection-reverse-holo-99": {"pop_total": 195, "pop_grade10": 24, "pop_pristine10": 2},

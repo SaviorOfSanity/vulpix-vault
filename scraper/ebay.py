@@ -170,8 +170,6 @@ def extract_card_metadata(title: str) -> Dict[str, Any]:
         card_name = "Alolan Vulpix V"
     elif re.search(r"(?i)alolan\s+vulpix", title):
         card_name = "Alolan Vulpix"
-    elif re.search(r"(?i)erika['’]?s\s+vulpix", title):
-        card_name = "Erika's Vulpix"
     elif re.search(r"(?i)brock['’]?s\s+vulpix", title):
         card_name = "Brock's Vulpix"
     elif re.search(r"(?i)light\s+vulpix", title):

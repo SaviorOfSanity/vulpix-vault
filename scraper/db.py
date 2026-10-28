@@ -204,6 +204,63 @@ def init_db(db_path: Optional[str] = None) -> None:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_master_search ON master_set_catalog(card_name, set_name, language, edition);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_lookup ON market_sales(card_name, grading_company, grade, condition_type);")
 
+        # Purge legacy hallucinated/misnumbered cards from older seed data
+        cursor.execute("""
+            DELETE FROM master_set_catalog 
+            WHERE card_name LIKE '%Erika%'
+               OR (card_name LIKE '%Brock%Vulpix%' AND set_name LIKE '%Gym Challenge%' AND card_number LIKE '%73%')
+               OR (card_name LIKE '%Light%Vulpix%' AND card_number LIKE '%80%');
+        """)
+        cursor.execute("DELETE FROM my_collection WHERE card_name LIKE '%Erika%' OR (card_name LIKE '%Light%Vulpix%' AND card_number LIKE '%80%');")
+
+        # Heal broken / 404 / inaccurate image URLs across master set and user collection
+        cursor.execute("""
+            UPDATE my_collection 
+            SET image_url = 'dashboard/static/cards/alolan-vulpix-sun-and-moon-promos-293-sm-p.jpg'
+            WHERE card_name LIKE '%Alolan Vulpix%' AND (set_name LIKE '%Daiichi%' OR card_number LIKE '%293%');
+        """)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/alolan-vulpix-sun-and-moon-promos-293-sm-p.jpg'
+            WHERE card_name LIKE '%Alolan Vulpix%' AND (set_name LIKE '%Daiichi%' OR card_number LIKE '%293%');
+        """)
+        cursor.execute("""
+            UPDATE my_collection 
+            SET image_url = 'dashboard/static/cards/alolan-vulpix-vstar-incandescent-arcana-023-068.jpg'
+            WHERE set_name LIKE '%Incandescent Arcana%' AND card_number LIKE '%023%';
+        """)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/alolan-vulpix-vstar-incandescent-arcana-023-068.jpg'
+            WHERE set_name LIKE '%Incandescent Arcana%' AND card_number LIKE '%023%';
+        """)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/vulpix-pokemon-card-151-037-165.jpg'
+            WHERE image_url LIKE '%sv2a/37%';
+        """)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET image_url = 'https://pokecottagecdn.com/mastersets/images/cards/vulpix-master-set__2016-09-16__jpn_xyep__14__Vulpix__1st_Edition__large.webp'
+            WHERE image_url LIKE '%cp6/14%';
+        """)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/playing_cards_korean.jpg'
+            WHERE image_url LIKE '%playing_cards_korean_8%';
+        """)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/vulpix-mega-brave-067-063.jpg'
+            WHERE image_url LIKE '%vulpix_mega_brave_067_066%';
+        """)
+        cursor.execute("""
+            UPDATE master_set_catalog 
+            SET image_url = 'https://images.pokemontcg.io/ru1/7_hires.png'
+            WHERE (set_name LIKE '%Rumble%' OR set_name LIKE '%Scramble%') AND image_url LIKE '%minun%';
+        """)
+
+
 
 # =============================================================
 # Sniper Watchlist Database Queries
