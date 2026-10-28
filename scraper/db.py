@@ -496,8 +496,10 @@ def init_db(db_path: Optional[str] = None) -> None:
         ''')
 
         # Fix 1996 Japanese Base Set (Expansion Pack) scans and remove duplicate 282
+        cursor.execute("DELETE FROM master_set_catalog WHERE id = 282;")
+
         cursor.execute('''
-            UPDATE master_set_catalog
+            UPDATE OR IGNORE master_set_catalog
             SET card_number = '015/102',
                 release_year = 1996,
                 pokecottage_id = '37-jpn_b01-15-normal',
@@ -512,7 +514,7 @@ def init_db(db_path: Optional[str] = None) -> None:
                OR (set_name LIKE '%Japanese%Base%' AND (edition LIKE '%Rarity%' OR edition LIKE '%Standard%'));
         ''')
         cursor.execute('''
-            UPDATE master_set_catalog
+            UPDATE OR IGNORE master_set_catalog
             SET card_number = '015/102',
                 release_year = 1996,
                 pokecottage_id = '37-jpn_b01-15-noRaritySymbol',
@@ -526,20 +528,16 @@ def init_db(db_path: Optional[str] = None) -> None:
                OR (set_name LIKE '%Japanese%Base%' AND edition LIKE '%No Rarity%');
         ''')
         cursor.execute('''
-            UPDATE master_set_catalog
+            UPDATE OR IGNORE master_set_catalog
             SET artist = 'Ken Sugimori'
             WHERE artist IS NULL OR artist = 'nan' OR artist = 'None' OR artist = '';
         ''')
         cursor.execute('''
-            UPDATE master_set_catalog
+            UPDATE OR IGNORE master_set_catalog
             SET image_url = 'dashboard/static/cards/vulpix-expansion-pack-no-015.jpg',
-                artist = 'Ken Sugimori',
-                card_number = '015/102',
-                release_year = 1996
-            WHERE set_name LIKE '%Japanese%Base%'
-               OR (language = 'Japanese' AND card_name = 'Vulpix' AND (card_number IS NULL OR card_number = '' OR card_number = 'No Number') AND release_year <= 2000);
+                artist = 'Ken Sugimori'
+            WHERE set_name LIKE '%Japanese%Base%' OR set_name = 'Expansion Pack';
         ''')
-        cursor.execute("DELETE FROM master_set_catalog WHERE id = 282;")
 
 
 
