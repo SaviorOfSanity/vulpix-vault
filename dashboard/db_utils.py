@@ -559,6 +559,104 @@ def ensure_tables_exist():
         """)
 
 
+# Purge phantom SM159 Zapdos promo
+        cursor.execute('''
+            DELETE FROM master_set_catalog 
+            WHERE card_number LIKE '%SM159%' 
+               OR (set_name LIKE '%SM%Black Star%' AND (card_number LIKE '%159%' OR image_url LIKE '%SM159%'));
+        ''')
+        cursor.execute("DELETE FROM my_collection WHERE card_number LIKE '%SM159%';")
+
+        # Fix Blue Sky Stream #010/067 (Japanese)
+        cursor.execute('''
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/vulpix_blue_sky_stream_010_067.jpg'
+            WHERE set_name LIKE '%Blue Sky Stream%' AND card_number LIKE '%010%';
+        ''')
+
+        # Fix Alter Genesis #016/095 (Japanese)
+        cursor.execute('''
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/vulpix_alter_genesis_016_095.jpg'
+            WHERE set_name LIKE '%Alter Genesis%' AND card_number LIKE '%016%';
+        ''')
+
+        # Fix Incandescent Arcana #077/068 & #087/068 (Japanese)
+        cursor.execute('''
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/alolan-vulpix-v-incandescent-arcana-077-068.jpg'
+            WHERE set_name LIKE '%Incandescent Arcana%' AND card_number LIKE '%077%';
+        ''')
+        cursor.execute('''
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/alolan-vulpix-vstar-incandescent-arcana-087-068.jpg'
+            WHERE set_name LIKE '%Incandescent Arcana%' AND card_number LIKE '%087%';
+        ''')
+
+        # Fix Incandescent Arcana #023/068 duplicate common row and link user's collection
+        cursor.execute('''
+            DELETE FROM master_set_catalog 
+            WHERE set_name LIKE '%Incandescent Arcana%' AND card_number LIKE '%023%' AND rarity = 'Common';
+        ''')
+        cursor.execute('''
+            UPDATE my_collection 
+            SET card_name = 'Alolan Vulpix VSTAR',
+                image_url = 'dashboard/static/cards/alolan-vulpix-vstar-incandescent-arcana-023-068.jpg',
+                master_card_id = (SELECT id FROM master_set_catalog WHERE set_name LIKE '%Incandescent Arcana%' AND card_number LIKE '%023%' LIMIT 1)
+            WHERE set_name LIKE '%Incandescent Arcana%' AND card_number LIKE '%023%';
+        ''')
+
+        # Fix Silver Tempest #017/195 (Vulpix not Alolan Vulpix V)
+        cursor.execute('''
+            UPDATE master_set_catalog 
+            SET card_name = 'Vulpix',
+                image_url = 'dashboard/static/cards/vulpix_silver_tempest_017_195.jpg'
+            WHERE set_name LIKE '%Silver Tempest%' AND card_number LIKE '%017%';
+        ''')
+
+        # Fix Guardians Rising #21a/145 Yellow A Alternate Art
+        cursor.execute('''
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/alolan-vulpix-guardians-rising-21a.webp'
+            WHERE (set_name LIKE '%Promo%' OR set_name LIKE '%Guardians%') AND card_number LIKE '%21a%';
+        ''')
+
+        # Fix Secret of the Lakes (DPBP#039)
+        cursor.execute('''
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/vulpix-secret-of-the-lakes-dp2-018.webp'
+            WHERE set_name LIKE '%Secret of the Lakes%';
+        ''')
+
+        # Fix Quick Starter Gift Set (1998)
+        cursor.execute('''
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/vulpix-quick-starter-gift-set.webp'
+            WHERE set_name LIKE '%Quick Starter Gift Set%';
+        ''')
+
+        # Fix V Starter Decks (010/125 or 010/127)
+        cursor.execute('''
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/vulpix-v-starter-decks-010-125.webp'
+            WHERE set_name LIKE '%V Starter Decks%';
+        ''')
+
+        # Fix Korean Promo 053/SM-P
+        cursor.execute('''
+            UPDATE master_set_catalog 
+            SET image_url = 'dashboard/static/cards/alolan-vulpix-promo-052-smp.webp'
+            WHERE card_number LIKE '%053/SM-P%';
+        ''')
+
+        # Fix Neo Destiny English collection card 89
+        cursor.execute('''
+            UPDATE my_collection 
+            SET card_number = '91/105',
+                master_card_id = (SELECT id FROM master_set_catalog WHERE set_name LIKE '%Neo Destiny%' AND card_number = '91/105' AND language = 'English' AND edition LIKE '%1st%' LIMIT 1)
+            WHERE set_name LIKE '%Neo Destiny%' AND (card_number = '37/105' OR master_card_id = 334);
+        ''')
+
         _seed_master_cards_if_missing(cursor)
         _seed_pricecharting_benchmarks(cursor)
 
@@ -639,21 +737,7 @@ def _seed_master_cards_if_missing(cursor: sqlite3.Cursor):
             "image_url": "dashboard/static/cards/alolan-vulpix-sun-and-moon-promos-293-sm-p.jpg",
             "notes": "2018 Daiichi Pan Pokemon Bread Promo #293/SM-P",
         },
-        {
-            "card_name": "Alolan Vulpix",
-            "set_name": "Incandescent Arcana",
-            "card_number": "023/068",
-            "release_year": 2022,
-            "language": "Japanese",
-            "edition": "Unlimited",
-            "rarity": "Common",
-            "is_error": 0,
-            "error_description": "",
-            "est_raw_price": 2.0,
-            "est_grade10_price": 27.0,
-            "image_url": "dashboard/static/cards/alolan-vulpix-vstar-incandescent-arcana-023-068.jpg",
-            "notes": "2022 Japanese Incandescent Arcana S11a #023/068",
-        },
+
         {
             "card_name": "Vulpix",
             "set_name": "Mega Brave",
