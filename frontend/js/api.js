@@ -51,4 +51,34 @@ export const api = {
     }),
   startImageCache: () => request("/api/sync/cache-images", { method: "POST" }),
   startPokecottageSync: () => request("/api/sync/pokecottage", { method: "POST" }),
+
+  // Phase 2: eBay Auction Radar & Alerts
+  getRadar: () => request("/api/radar"),
+  startRadarScan: () => request("/api/radar/scan", { method: "POST" }),
+  trackAuction: (payload) =>
+    request("/api/radar/track", { method: "POST", body: JSON.stringify(payload) }),
+  updateRadarListing: (itemId, payload) =>
+    request(`/api/radar/listings/${encodeURIComponent(itemId)}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  markListingWon: (itemId, payload = {}) =>
+    request(`/api/radar/listings/${encodeURIComponent(itemId)}/won`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  deleteRadarListing: (itemId) =>
+    request(`/api/radar/listings/${encodeURIComponent(itemId)}`, { method: "DELETE" }),
+  updateRadarSettings: (payload) =>
+    request("/api/radar/settings", { method: "PUT", body: JSON.stringify(payload) }),
+  testRadarAlert: () => request("/api/radar/test-alert", { method: "POST" }),
+  addRadarQuery: (payload) =>
+    request("/api/radar/queries", { method: "POST", body: JSON.stringify(payload) }),
+  toggleRadarQuery: (queryId, enabled) =>
+    request(`/api/radar/queries/${queryId}`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
+  deleteRadarQuery: (queryId) =>
+    request(`/api/radar/queries/${queryId}`, { method: "DELETE" }),
 };

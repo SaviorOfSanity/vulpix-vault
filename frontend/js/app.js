@@ -1,10 +1,11 @@
 /**
- * Application entrypoint — state store, tab navigation, instant '/' auction search, and live sync polling.
+ * Application entrypoint — state store, tab navigation, instant '/' auction search, and live sync/radar polling.
  */
 
 import { api } from "./api.js";
 import { binderFilters, renderBinderView } from "./binder.js";
 import { initModal, updateModalList } from "./modal.js";
+import { renderRadarView, startRadarTicker, stopRadarTicker, updateRadarScanStatus } from "./radar.js";
 import { renderSyncView, updateSyncJobCards } from "./sync.js";
 import { esc, showToast } from "./utils.js";
 import { initVaultModal, renderVaultView } from "./vault.js";
@@ -13,6 +14,7 @@ const state = {
   activeTab: "binder",
   catalog: null,
   vault: null,
+  radar: null,
   health: null,
   syncState: null,
   pollTimer: null,
@@ -26,16 +28,26 @@ function switchTab(tab) {
   document.querySelectorAll(".view-section").forEach((sec) => {
     sec.classList.toggle("active", sec.id === `view-${tab}`);
   });
+  if (tab === "radar") {
+    startRadarTicker();
+  } else {
+    stopRadarTicker();
+  }
   renderActiveView();
 }
 
 function updateTopBadges() {
   const s = state.catalog?.summary;
   const vm = state.vault?.metrics;
+  const rs = state.radar?.summary;
   const ownedPill = document.getElementById("nav-owned-pill");
   const vaultPill = document.getElementById("nav-vault-pill");
+  const radarPill = document.getElementById("nav-radar-pill");
   if (ownedPill && s) ownedPill.textContent = `${s.unique_owned}/${s.unique_total}`;
   if (vaultPill && vm) vaultPill.textContent = String(vm.total_items);
+  if (radarPill && rs) {
+    radarPill.textContent = String(rs.hot_deals > 0 ? rs.hot_deals : (rs.needed_matches || rs.watched_count || rs.total_active));
+  }
 }
 
 function renderActiveView() {
@@ -44,6 +56,8 @@ function renderActiveView() {
     renderBinderView(state.catalog, renderActiveView);
   } else if (state.activeTab === "vault") {
     renderVaultView(state.vault, state.catalog, refreshAllData);
+  } else if (state.activeTab === "radar") {
+    renderRadarView(state.radar, state.catalog, startSyncPolling, refreshAllData);
   } else if (state.activeTab === "sync") {
     renderSyncView(state.health, state.syncState, startSyncPolling, refreshAllData);
   }
@@ -51,14 +65,16 @@ function renderActiveView() {
 
 async function refreshAllData() {
   try {
-    const [catalog, vault, health, syncState] = await Promise.all([
+    const [catalog, vault, radar, health, syncState] = await Promise.all([
       api.getCatalog(),
       api.getVault(),
+      api.getRadar(),
       api.getHealth(),
       api.getSyncStatus(),
     ]);
     state.catalog = catalog;
     state.vault = vault;
+    state.radar = radar;
     state.health = health;
     state.syncState = syncState;
     renderActiveView();
@@ -74,7 +90,7 @@ function updateSyncBanner() {
   const activeJob = Object.values(state.syncState || {}).find((j) => j.running);
   if (activeJob) {
     const pct = activeJob.total > 0 ? Math.round((activeJob.progress / activeJob.total) * 100) : 0;
-    banner.innerHTML = `<span>⚡ <strong>Background Sync Active:</strong> ${esc(activeJob.message)} (${pct}%)</span>`;
+    banner.innerHTML = `<span>⚡ <strong>Background Task Active:</strong> ${esc(activeJob.message)} (${pct}%)</span>`;
     banner.classList.remove("hidden");
   } else {
     banner.classList.add("hidden");
@@ -91,12 +107,14 @@ function startSyncPolling() {
       updateSyncBanner();
       if (state.activeTab === "sync") {
         updateSyncJobCards(state.syncState);
+      } else if (state.activeTab === "radar") {
+        updateRadarScanStatus(state.syncState?.radar);
       }
       if (prevRunning && !nowRunning) {
         clearInterval(state.pollTimer);
         state.pollTimer = null;
         await refreshAllData();
-        showToast("Sync job finished and catalog updated!", "ok");
+        showToast("Background job finished and data refreshed!", "ok");
       } else if (!nowRunning) {
         clearInterval(state.pollTimer);
         state.pollTimer = null;

@@ -41,9 +41,32 @@ from backend.db import (
     init_schema,
 )
 from backend.ebay_links import get_verification_links
+from backend.ebay_radar import (
+    dispatch_radar_alerts,
+    evaluate_deal,
+    expire_ended_listings,
+    get_radar_config,
+    run_ebay_radar_scan,
+    save_radar_config,
+    seed_default_radar_queries,
+    track_single_ebay_url,
+)
 from backend.error_annotations import get_visual_callouts
 from backend.migration import match_catalog_key, migrate_legacy_vault_if_needed
-from backend.models import CustomCardCreate, PriceOverrideIn, SyncJobRequest, VaultItemCreate, VaultItemUpdate
+from backend.models import (
+    CustomCardCreate,
+    ListingActionUpdate,
+    ListingWonRequest,
+    PriceOverrideIn,
+    RadarQueryCreate,
+    RadarQueryToggle,
+    RadarSettingsUpdate,
+    SyncJobRequest,
+    TrackAuctionRequest,
+    VaultItemCreate,
+    VaultItemUpdate,
+)
+from backend.notifier import send_alert
 from backend.pricing import refresh_catalog_prices_batch, refresh_single_card_price
 
 # In-memory job status registry for non-blocking background sync tasks
@@ -52,6 +75,7 @@ SYNC_STATE: Dict[str, Dict[str, Any]] = {
     "prices": {"running": False, "progress": 0, "total": 0, "message": "Idle", "result": None, "finished_at": None},
     "cache_images": {"running": False, "progress": 0, "total": 0, "message": "Idle", "result": None, "finished_at": None},
     "pokecottage": {"running": False, "progress": 0, "total": 0, "message": "Idle", "result": None, "finished_at": None},
+    "radar": {"running": False, "progress": 0, "total": 0, "message": "Idle", "result": None, "finished_at": None},
 }
 
 
@@ -61,15 +85,49 @@ def bootstrap_database() -> None:
     seed_canonical_catalog()
     translate_and_dedupe_existing_catalog()
     migrate_legacy_vault_if_needed()
+    seed_default_radar_queries()
+
+
+async def _radar_scheduler_loop() -> None:
+    """Lightweight background scheduler for Phase 2 eBay Radar auto-scans & ending-soon alerts."""
+    last_auto_scan = 0.0
+    await asyncio.sleep(15)
+    while True:
+        try:
+            expire_ended_listings()
+            cfg = get_radar_config(mask_secrets=False)
+            now_ts = asyncio.get_event_loop().time()
+            interval_sec = max(300, int(cfg["auto_scan_interval_min"]) * 60)
+
+            if cfg["ebay_configured"] and cfg["auto_scan_enabled"] and not SYNC_STATE["radar"]["running"]:
+                if (now_ts - last_auto_scan) >= interval_sec:
+                    last_auto_scan = now_ts
+                    asyncio.create_task(_run_job("radar", lambda cb: run_ebay_radar_scan(progress_cb=cb)))
+            else:
+                # Still dispatch ending-soon alerts for manually watched auctions even without auto-scan!
+                await dispatch_radar_alerts()
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            pass
+        await asyncio.sleep(60)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     bootstrap_database()
-    yield
+    scheduler = asyncio.create_task(_radar_scheduler_loop())
+    try:
+        yield
+    finally:
+        scheduler.cancel()
+        try:
+            await scheduler
+        except asyncio.CancelledError:
+            pass
 
 
-app = FastAPI(title="The Vulpix Vault API", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="The Vulpix Vault API", version="2.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -186,7 +244,7 @@ def api_health() -> Dict[str, Any]:
         ).fetchone()[0]
     return {
         "status": "ok",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "schema_version": SCHEMA_VERSION,
         "db_path": db_path,
         "db_size_kb": size_kb,
@@ -677,6 +735,357 @@ async def api_start_pokecottage_sync() -> Dict[str, Any]:
         return {"started": False, "message": "PokeCottage sync is already running."}
     asyncio.create_task(_run_job("pokecottage", lambda cb: refresh_pokecottage_remote(progress_cb=cb)))
     return {"started": True, "message": "Started PokeCottage remote refresh."}
+
+
+# =============================================================
+# Phase 2: eBay Auction Radar & Sniper Alerts Endpoints
+# =============================================================
+
+@app.get("/api/radar")
+def api_get_radar(include_dismissed: bool = False) -> Dict[str, Any]:
+    """Returns active eBay listings enriched with Master Set ownership, live comps, and Radar config."""
+    expire_ended_listings()
+    now_utc = datetime.now(timezone.utc)
+
+    with get_conn() as conn:
+        where_clause = "is_active = 1" if include_dismissed else "is_active = 1 AND is_dismissed = 0"
+        listing_rows = [
+            dict(r) for r in conn.execute(
+                f"""SELECT * FROM ebay_listings
+                    WHERE {where_clause}
+                    ORDER BY CASE WHEN end_time = '' THEN 1 ELSE 0 END ASC, end_time ASC, total_cost ASC;"""
+            ).fetchall()
+        ]
+        cat_rows = [dict(r) for r in conn.execute("SELECT * FROM catalog_cards;").fetchall()]
+        vault_rows = [dict(r) for r in conn.execute("SELECT * FROM vault_items WHERE catalog_key IS NOT NULL;").fetchall()]
+        query_rows = [dict(r) for r in conn.execute("SELECT * FROM radar_queries ORDER BY id ASC;").fetchall()]
+
+    cat_by_key = {r["catalog_key"]: r for r in cat_rows}
+    vault_by_key: Dict[str, List[Dict[str, Any]]] = {}
+    for vr in vault_rows:
+        vault_by_key.setdefault(vr["catalog_key"], []).append(vr)
+
+    listings_out: List[Dict[str, Any]] = []
+    needed_matches = 0
+    hot_deals = 0
+    ending_under_1h = 0
+    watched_count = 0
+    auctions_count = 0
+    bin_count = 0
+
+    for lr in listing_rows:
+        ck = lr.get("catalog_key")
+        cat = cat_by_key.get(ck) if ck else None
+
+        # Always re-evaluate deal tier against latest catalog prices so manual price edits reflect instantly
+        comp, deal_tier, discount_pct = evaluate_deal(
+            float(lr.get("total_cost") or 0.0),
+            lr.get("detected_grader") or "RAW",
+            float(lr.get("detected_grade") or 0.0),
+            lr.get("detected_grade_label") or "Raw Single",
+            cat,
+        )
+
+        # Ownership status relative to user's Personal Vault
+        ownership_status = "UNMATCHED"
+        best_owned_badge = ""
+        if cat:
+            owned_list = vault_by_key.get(ck, [])
+            if not owned_list:
+                ownership_status = "MISSING"
+            else:
+                graded = [v for v in owned_list if not v["is_raw"]]
+                if graded:
+                    best = max(graded, key=lambda x: float(x["grade"] or 0.0))
+                    g = float(best["grade"] or 0.0)
+                    g_txt = int(g) if g == int(g) else g
+                    best_owned_badge = f"{best['grading_company']} {g_txt}"
+                    ownership_status = "OWNED_10" if g >= 10.0 else "UPGRADE"
+                else:
+                    best_owned_badge = "RAW"
+                    ownership_status = "UPGRADE"
+
+        secs_left: Optional[int] = None
+        if lr.get("end_time"):
+            try:
+                et = datetime.fromisoformat(lr["end_time"].replace("Z", "+00:00"))
+                secs_left = max(0, int((et - now_utc).total_seconds()))
+            except Exception:
+                secs_left = None
+
+        is_needed = ownership_status in ("MISSING", "UPGRADE")
+        if is_needed:
+            needed_matches += 1
+        if deal_tier in ("SNIPE", "GOOD") and (is_needed or lr.get("is_watched")):
+            hot_deals += 1
+        if secs_left is not None and 0 < secs_left <= 3600:
+            ending_under_1h += 1
+        if lr.get("is_watched"):
+            watched_count += 1
+        if "AUCTION" in (lr.get("buying_option") or ""):
+            auctions_count += 1
+        else:
+            bin_count += 1
+
+        listings_out.append({
+            "ebay_item_id": lr["ebay_item_id"],
+            "title": lr["title"],
+            "url": lr["url"],
+            "image_url": lr.get("image_url") or (_resolve_display_image(cat) if cat else ""),
+            "buying_option": lr.get("buying_option") or "AUCTION",
+            "current_price": round(float(lr.get("current_price") or 0.0), 2),
+            "shipping_cost": round(float(lr.get("shipping_cost") or 0.0), 2),
+            "total_cost": round(float(lr.get("total_cost") or 0.0), 2),
+            "bid_count": int(lr.get("bid_count") or 0),
+            "end_time": lr.get("end_time") or "",
+            "seconds_remaining": secs_left,
+            "seller_username": lr.get("seller_username") or "",
+            "seller_feedback_pct": lr.get("seller_feedback_pct"),
+            "condition": lr.get("condition") or "",
+            "detected_grader": lr.get("detected_grader") or "RAW",
+            "detected_grade": float(lr.get("detected_grade") or 0.0),
+            "detected_grade_label": lr.get("detected_grade_label") or "Raw Single",
+            "catalog_key": ck,
+            "match_confidence": int(lr.get("match_confidence") or 0),
+            "market_comp": comp,
+            "deal_tier": deal_tier,
+            "discount_pct": discount_pct,
+            "is_watched": bool(lr.get("is_watched")),
+            "is_dismissed": bool(lr.get("is_dismissed")),
+            "source_query": lr.get("source_query") or "",
+            "ownership_status": ownership_status,
+            "best_owned_badge": best_owned_badge,
+            "matched_card_name": cat["card_name"] if cat else "",
+            "matched_set_name": cat["set_name"] if cat else "",
+            "matched_card_number": cat["card_number"] if cat else "",
+            "matched_language": cat["language"] if cat else "",
+            "matched_edition": cat["edition"] if cat else "",
+            "matched_variant_key": cat["variant_key"] if cat else "",
+            "matched_is_error": bool(cat["is_error"]) if cat else False,
+            "matched_image_url": _resolve_display_image(cat) if cat else "",
+        })
+
+    return {
+        "listings": listings_out,
+        "summary": {
+            "total_active": len(listings_out),
+            "needed_matches": needed_matches,
+            "hot_deals": hot_deals,
+            "ending_under_1h": ending_under_1h,
+            "watched_count": watched_count,
+            "auctions_count": auctions_count,
+            "bin_count": bin_count,
+        },
+        "config": get_radar_config(mask_secrets=True),
+        "queries": [
+            {
+                "id": int(q["id"]),
+                "query": q["query"],
+                "label": q["label"],
+                "buying_filter": q["buying_filter"],
+                "enabled": bool(q["enabled"]),
+            }
+            for q in query_rows
+        ],
+        "scan_state": SYNC_STATE["radar"],
+    }
+
+
+@app.post("/api/radar/scan")
+async def api_start_radar_scan() -> Dict[str, Any]:
+    if SYNC_STATE["radar"]["running"]:
+        return {"started": False, "message": "eBay Auction Radar scan is already running."}
+    cfg = get_radar_config(mask_secrets=False)
+    if not cfg["ebay_configured"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Add your free eBay Client ID & Secret in Radar Setup first (or use + Track Auction URL manually).",
+        )
+    asyncio.create_task(_run_job("radar", lambda cb: run_ebay_radar_scan(progress_cb=cb)))
+    return {"started": True, "message": "Started live eBay Auction Radar scan."}
+
+
+@app.post("/api/radar/track")
+async def api_track_auction(payload: TrackAuctionRequest) -> Dict[str, Any]:
+    try:
+        saved = await track_single_ebay_url(
+            payload.url,
+            title=payload.title,
+            current_price=payload.current_price,
+            shipping_cost=payload.shipping_cost,
+            end_time=payload.end_time,
+            minutes_remaining=payload.minutes_remaining,
+            buying_option=payload.buying_option,
+            catalog_key=payload.catalog_key,
+        )
+        return {"status": "tracked", "listing": saved}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.put("/api/radar/listings/{item_id}")
+def api_update_radar_listing(item_id: str, payload: ListingActionUpdate) -> Dict[str, Any]:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM ebay_listings WHERE ebay_item_id = ?;", (item_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Listing not found")
+        cur_data = dict(row)
+        updates = payload.model_dump(exclude_unset=True)
+
+        if "is_watched" in updates and updates["is_watched"] is not None:
+            cur_data["is_watched"] = 1 if updates["is_watched"] else 0
+        if "is_dismissed" in updates and updates["is_dismissed"] is not None:
+            cur_data["is_dismissed"] = 1 if updates["is_dismissed"] else 0
+        if "current_price" in updates and updates["current_price"] is not None:
+            cur_data["current_price"] = round(float(updates["current_price"]), 2)
+        if "shipping_cost" in updates and updates["shipping_cost"] is not None:
+            cur_data["shipping_cost"] = round(float(updates["shipping_cost"]), 2)
+        cur_data["total_cost"] = round(float(cur_data["current_price"]) + float(cur_data["shipping_cost"]), 2)
+        if "end_time" in updates and updates["end_time"] is not None:
+            cur_data["end_time"] = str(updates["end_time"]).strip()
+
+        if "catalog_key" in updates:
+            new_ck = updates["catalog_key"] or None
+            cur_data["catalog_key"] = new_ck
+            cur_data["match_confidence"] = 100 if new_ck else 0
+
+        cat = None
+        if cur_data.get("catalog_key"):
+            c_row = conn.execute("SELECT * FROM catalog_cards WHERE catalog_key = ?;", (cur_data["catalog_key"],)).fetchone()
+            cat = dict(c_row) if c_row else None
+
+        comp, tier, disc = evaluate_deal(
+            cur_data["total_cost"],
+            cur_data["detected_grader"],
+            float(cur_data["detected_grade"] or 0.0),
+            cur_data["detected_grade_label"],
+            cat,
+        )
+        cur_data["market_comp"] = comp
+        cur_data["deal_tier"] = tier
+        cur_data["discount_pct"] = disc
+
+        conn.execute("""
+            UPDATE ebay_listings
+            SET is_watched = :is_watched,
+                is_dismissed = :is_dismissed,
+                catalog_key = :catalog_key,
+                match_confidence = :match_confidence,
+                current_price = :current_price,
+                shipping_cost = :shipping_cost,
+                total_cost = :total_cost,
+                end_time = :end_time,
+                market_comp = :market_comp,
+                deal_tier = :deal_tier,
+                discount_pct = :discount_pct
+            WHERE ebay_item_id = :ebay_item_id;
+        """, cur_data)
+
+    return {"status": "updated", "ebay_item_id": item_id}
+
+
+@app.post("/api/radar/listings/{item_id}/won")
+def api_mark_listing_won(item_id: str, payload: Optional[ListingWonRequest] = None) -> Dict[str, Any]:
+    """1-click 'Won It -> Add to Personal Vault' from any Auction Radar card."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM ebay_listings WHERE ebay_item_id = ?;", (item_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Listing not found")
+        lr = dict(row)
+        cat = None
+        if lr.get("catalog_key"):
+            cr = conn.execute("SELECT * FROM catalog_cards WHERE catalog_key = ?;", (lr["catalog_key"],)).fetchone()
+            cat = dict(cr) if cr else None
+
+        grader = (lr.get("detected_grader") or "RAW").upper()
+        is_raw = 1 if grader == "RAW" else 0
+        grade = 0.0 if is_raw else float(lr.get("detected_grade") or 0.0)
+        grade_label = "Raw Single" if is_raw else (lr.get("detected_grade_label") or "Gem Mint")
+        paid = float(payload.purchase_price) if (payload and payload.purchase_price is not None) else float(lr.get("total_cost") or 0.0)
+        cert = payload.cert_number.strip() if payload else ""
+        extra_note = payload.notes.strip() if payload else ""
+        note_text = f"Won on eBay: {lr['url']}" + (f" | {extra_note}" if extra_note else "")
+
+        cur = conn.execute("""
+            INSERT INTO vault_items (
+                catalog_key, card_name, set_name, card_number, language, edition,
+                is_raw, grading_company, grade, grade_label, cert_number,
+                purchase_price, purchase_date, image_url, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """, (
+            cat["catalog_key"] if cat else None,
+            cat["card_name"] if cat else lr["title"][:80],
+            cat["set_name"] if cat else "eBay Purchase",
+            cat["card_number"] if cat else "",
+            cat["language"] if cat else "English",
+            cat["edition"] if cat else "Unlimited",
+            is_raw,
+            grader,
+            grade,
+            grade_label,
+            cert,
+            round(paid, 2),
+            datetime.now().strftime("%Y-%m-%d"),
+            _resolve_display_image(cat) if cat else (lr.get("image_url") or ""),
+            note_text,
+        ))
+        new_vid = cur.lastrowid
+        conn.execute("UPDATE ebay_listings SET is_active = 0, is_watched = 0 WHERE ebay_item_id = ?;", (item_id,))
+
+    return {"status": "moved_to_vault", "vault_item_id": new_vid}
+
+
+@app.delete("/api/radar/listings/{item_id}")
+def api_delete_radar_listing(item_id: str) -> Dict[str, Any]:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM ebay_listings WHERE ebay_item_id = ?;", (item_id,))
+    return {"deleted": True, "ebay_item_id": item_id}
+
+
+@app.put("/api/radar/settings")
+def api_update_radar_settings(payload: RadarSettingsUpdate) -> Dict[str, Any]:
+    updates = payload.model_dump(exclude_unset=True)
+    cfg = save_radar_config(updates)
+    return {"status": "saved", "config": cfg}
+
+
+@app.post("/api/radar/test-alert")
+async def api_test_radar_alert() -> Dict[str, Any]:
+    return await send_alert(
+        title="🦊 Vulpix Vault Radar — Test Alert",
+        message="Your Auction Radar alerts are connected and ready for the last 10 minutes of your next eBay snipe!",
+        url="https://www.ebay.com/sch/i.html?_nkw=Vulpix+Pokemon+Card&_sop=1",
+        priority=6,
+    )
+
+
+@app.post("/api/radar/queries")
+def api_add_radar_query(payload: RadarQueryCreate) -> Dict[str, Any]:
+    q = payload.query.strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="Search query cannot be empty.")
+    bf = payload.buying_filter.upper() if payload.buying_filter.upper() in ("ALL", "AUCTION", "FIXED_PRICE") else "ALL"
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO radar_queries (query, label, buying_filter, enabled) VALUES (?, ?, ?, 1);",
+            (q, payload.label.strip() or q, bf),
+        )
+        qid = cur.lastrowid
+    return {"status": "created", "id": qid}
+
+
+@app.put("/api/radar/queries/{query_id}")
+def api_toggle_radar_query(query_id: int, payload: RadarQueryToggle) -> Dict[str, Any]:
+    with get_conn() as conn:
+        conn.execute("UPDATE radar_queries SET enabled = ? WHERE id = ?;", (1 if payload.enabled else 0, query_id))
+    return {"status": "updated", "id": query_id, "enabled": payload.enabled}
+
+
+@app.delete("/api/radar/queries/{query_id}")
+def api_delete_radar_query(query_id: int) -> Dict[str, Any]:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM radar_queries WHERE id = ?;", (query_id,))
+    return {"deleted": True, "id": query_id}
 
 
 # =============================================================

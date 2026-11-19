@@ -7,6 +7,9 @@ services:
     restart: unless-stopped
     ports:
       - "8501:8501"
+    env_file:
+      - path: .env
+        required: false
     environment:
       - DB_PATH=/data/vulpix_vault.db
     volumes:

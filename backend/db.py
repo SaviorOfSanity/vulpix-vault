@@ -11,7 +11,7 @@ import sqlite3
 from contextlib import contextmanager
 from typing import Iterator, Optional
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def get_project_root() -> str:
@@ -166,12 +166,60 @@ def init_schema(db_path: Optional[str] = None) -> None:
             );
         """)
 
+        # Phase 2: eBay Auction Radar tables
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS ebay_listings (
+                ebay_item_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                image_url TEXT DEFAULT '',
+                buying_option TEXT NOT NULL DEFAULT 'AUCTION',
+                current_price REAL NOT NULL DEFAULT 0.0,
+                shipping_cost REAL NOT NULL DEFAULT 0.0,
+                total_cost REAL NOT NULL DEFAULT 0.0,
+                bid_count INTEGER DEFAULT 0,
+                end_time TEXT DEFAULT '',
+                seller_username TEXT DEFAULT '',
+                seller_feedback_pct REAL,
+                condition TEXT DEFAULT '',
+                detected_grader TEXT DEFAULT 'RAW',
+                detected_grade REAL DEFAULT 0.0,
+                detected_grade_label TEXT DEFAULT 'Raw Single',
+                catalog_key TEXT,
+                match_confidence INTEGER DEFAULT 0,
+                market_comp REAL,
+                deal_tier TEXT DEFAULT 'UNPRICED',
+                discount_pct REAL,
+                is_watched INTEGER DEFAULT 0,
+                is_dismissed INTEGER DEFAULT 0,
+                alert_sent INTEGER DEFAULT 0,
+                is_active INTEGER DEFAULT 1,
+                source_query TEXT DEFAULT '',
+                first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (catalog_key) REFERENCES catalog_cards(catalog_key) ON DELETE SET NULL
+            );
+        """)
+
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS radar_queries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL DEFAULT '',
+                buying_filter TEXT NOT NULL DEFAULT 'ALL',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
         c.execute("CREATE INDEX IF NOT EXISTS idx_cat_lang ON catalog_cards(language);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_cat_group ON catalog_cards(card_group_key);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_cat_year ON catalog_cards(release_year, set_name);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_cat_pc ON catalog_cards(pokecottage_id);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_cat_tcgdex ON catalog_cards(tcgdex_id);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_vault_catkey ON vault_items(catalog_key);")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ebay_active_end ON ebay_listings(is_active, is_dismissed, end_time);")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ebay_catkey ON ebay_listings(catalog_key);")
 
         # Safe additive schema upgrade for existing v2 SQLite DBs
         existing_cols = {row["name"] for row in c.execute("PRAGMA table_info(catalog_cards);").fetchall()}

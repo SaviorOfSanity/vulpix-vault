@@ -81,3 +81,59 @@ class SyncJobRequest(BaseModel):
     only_unpriced: bool = True
     languages: Optional[List[str]] = None
     limit: Optional[int] = None
+
+
+# =============================================================
+# Phase 2: eBay Auction Radar & Alerts Models
+# =============================================================
+
+class RadarSettingsUpdate(BaseModel):
+    ebay_client_id: Optional[str] = None
+    ebay_client_secret: Optional[str] = None
+    ebay_env: Optional[str] = None  # "production" | "sandbox"
+    ebay_marketplace: Optional[str] = None  # default "EBAY_US"
+    auto_scan_enabled: Optional[bool] = None
+    auto_scan_interval_min: Optional[int] = None
+    alert_min_discount_pct: Optional[int] = None
+    alert_ending_soon_min: Optional[int] = None
+    alert_needed_only: Optional[bool] = None
+    gotify_url: Optional[str] = None
+    gotify_token: Optional[str] = None
+    discord_webhook_url: Optional[str] = None
+    ntfy_url: Optional[str] = None
+
+
+class RadarQueryCreate(BaseModel):
+    query: str
+    label: str = ""
+    buying_filter: str = "ALL"  # "ALL" | "AUCTION" | "FIXED_PRICE"
+
+
+class RadarQueryToggle(BaseModel):
+    enabled: bool
+
+
+class TrackAuctionRequest(BaseModel):
+    url: str
+    title: str = ""
+    current_price: Optional[float] = None
+    shipping_cost: Optional[float] = None
+    end_time: str = ""  # ISO UTC or minutes from now if omitted
+    minutes_remaining: Optional[int] = None
+    buying_option: str = "AUCTION"
+    catalog_key: Optional[str] = None
+
+
+class ListingActionUpdate(BaseModel):
+    is_watched: Optional[bool] = None
+    is_dismissed: Optional[bool] = None
+    catalog_key: Optional[str] = None
+    current_price: Optional[float] = None
+    shipping_cost: Optional[float] = None
+    end_time: Optional[str] = None
+
+
+class ListingWonRequest(BaseModel):
+    purchase_price: Optional[float] = None
+    cert_number: str = ""
+    notes: str = ""

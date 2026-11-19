@@ -9,12 +9,16 @@ Designed around the **last 10 minutes of an eBay auction**: open the app, type a
 
 ---
 
-## Core Features (Phase 1)
+## Core Features (Phase 1 + Phase 2)
 
-- **Canonical Multi-Language Master Set:** Deterministically compiled from PokeCottage's official 251-variant Vulpix dataset, curated Vulpix-themed promos (Poncho-wearing Pikachu `#037/SM-P` & `#038/SM-P`), documented error variants, authentic Playing Cards, and **all 14 official Pokémon TCG languages** via the open-source **TCGdex API v2** (with localized scans). Background cameos are excluded.
-- **Interactive Visual Error & Stamp Overlays:** Click any card tile directly to open the Auction Command modal. Error cards and key print marks (Base Set `"HP 50"` typo vs 4th Print `"50 HP"`, Blue Dot Error, Water Symbol Error, Ink Error, 1996 Japanese No Rarity Symbol, Gym Heroes Grey Stamp Error, Gym Challenge Gold `"W"` Stamp, Master Ball vs Poké Ball holo) render numbered highlight overlays directly on top of the card photo.
+- **Canonical Multi-Language Master Set (with English Translations):** Deterministically compiled from PokeCottage's official 251-variant Vulpix dataset, curated Vulpix-themed promos (Poncho-wearing Pikachu `#037/SM-P` & `#038/SM-P`), documented error variants, authentic Playing Cards, and **all 14 official Pokémon TCG languages** via **TCGdex API v2**. Foreign card titles and set names are automatically translated to English with original native text preserved alongside. Background cameos are excluded.
+- **Pixel-Calibrated Visual Error & Stamp Overlays:** Click any card tile directly to open the Auction Command modal. Error cards and key print marks (Base Set `"HP 50"` typo vs 4th Print `"50 HP"`, Blue Dot Error, Water Symbol Error, Ink Error, 1996 Japanese No Rarity Symbol, Gym Heroes Grey Stamp Error, Gym Challenge Gold `"W"` Stamp, Master Ball vs Poké Ball holo) render numbered highlight overlays directly on top of the exact location on the card photo.
+- **Phase 2 — eBay Auction Radar & Sniper Alerts:**
+  - Powered by the official free **eBay Browse API** (OAuth2 Client Credentials — zero fragile HTML scraping) plus instant **+ Track Auction URL** manual tracking even before connecting API keys.
+  - Auto-matches active auctions & Buy It Now listings against your **Missing** and **Upgradeable (<Grade 10)** cards with live ticking countdown timers, real Deal Badges (`SNIPE`, `GOOD DEAL`, `FAIR`, `OVERPRICED`), 1-click **Verify Card & Bid** modal launch, and 1-click **Won → Vault**.
+  - Optional push alerts via **Gotify**, **Discord Webhook**, or **ntfy** (configured in the UI or via `.env`).
 - **Honest Live Market Pricing:** Fetches real Raw, Grade 9, and PSA 10 comps from **PriceCharting** and **TCGdex (TCGPlayer USD & Cardmarket EUR)** with transparent source & timestamp badges, manual comp locking, and zero fake placeholders.
-- **Personal Vault & Portfolio:** Track graded slabs and raw singles with exact grader, grade label, cert lookup links, purchase basis, live market value, ROI, and upgrade-candidate tracking. Preserves existing SQLite collection data seamlessly via one-time non-destructive migration.
+- **Personal Vault & Portfolio:** Track graded slabs and raw singles with exact grader, grade label, cert lookup links, purchase basis, live market value, ROI, and upgrade-candidate tracking.
 - **Zero-Build Single Container:** Lean `python:3.11-slim` Docker image running FastAPI + static ES module SPA on port `8501`.
 
 ---
