@@ -24,6 +24,7 @@ from backend.db import (
     get_static_cards_dir,
 )
 from backend.error_annotations import get_visual_callouts
+from backend.translations import translate_card_name, translate_set_name
 
 POKECOTTAGE_DATA_JS_URL = "https://pokecottagecdn.com/mastersets/data/37-vulpix-data.js"
 POKECOTTAGE_PAGE_URL = "https://pokecottage.com/pokemon-master-sets/vulpix"
@@ -177,15 +178,17 @@ def _resolve_pokecottage_json_path() -> Optional[str]:
 
 def _upsert_catalog_card(cursor, card: Dict[str, Any]) -> None:
     """Idempotent upsert that preserves existing live/manual pricing and cached local images."""
+    card.setdefault("native_name", "")
+    card.setdefault("native_set_name", "")
     cursor.execute("""
         INSERT INTO catalog_cards (
-            catalog_key, card_group_key, card_name, set_name, set_id, series,
+            catalog_key, card_group_key, card_name, native_name, set_name, native_set_name, set_id, series,
             card_number, base_number, release_year, release_date, language, region,
             edition, variant_key, rarity, artist, is_error, error_description,
             visual_callouts, image_url, local_image, image_is_localized,
             pokecottage_id, tcgdex_id, pricecharting_url, tcgplayer_url, notes, source
         ) VALUES (
-            :catalog_key, :card_group_key, :card_name, :set_name, :set_id, :series,
+            :catalog_key, :card_group_key, :card_name, :native_name, :set_name, :native_set_name, :set_id, :series,
             :card_number, :base_number, :release_year, :release_date, :language, :region,
             :edition, :variant_key, :rarity, :artist, :is_error, :error_description,
             :visual_callouts, :image_url, :local_image, :image_is_localized,
@@ -194,7 +197,9 @@ def _upsert_catalog_card(cursor, card: Dict[str, Any]) -> None:
         ON CONFLICT(catalog_key) DO UPDATE SET
             card_group_key = excluded.card_group_key,
             card_name = excluded.card_name,
+            native_name = CASE WHEN excluded.native_name != '' THEN excluded.native_name ELSE catalog_cards.native_name END,
             set_name = excluded.set_name,
+            native_set_name = CASE WHEN excluded.native_set_name != '' THEN excluded.native_set_name ELSE catalog_cards.native_set_name END,
             set_id = CASE WHEN excluded.set_id != '' THEN excluded.set_id ELSE catalog_cards.set_id END,
             series = CASE WHEN excluded.series != '' THEN excluded.series ELSE catalog_cards.series END,
             card_number = CASE WHEN excluded.card_number != '' THEN excluded.card_number ELSE catalog_cards.card_number END,
@@ -610,6 +615,17 @@ async def sync_tcgdex_all_languages(
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers=headers) as client:
+        # Fetch official TCGdex English set catalog once so EVERY international set_id resolves to English!
+        en_set_lookup: Dict[str, str] = {}
+        try:
+            en_sets_resp = await client.get(f"{TCGDEX_BASE}/en/sets")
+            if en_sets_resp.status_code == 200 and isinstance(en_sets_resp.json(), list):
+                for s_item in en_sets_resp.json():
+                    if s_item.get("id") and s_item.get("name"):
+                        en_set_lookup[str(s_item["id"]).lower()] = str(s_item["name"]).strip()
+        except Exception:
+            pass
+
         for idx, (lang_code, lang_name, region, fallback_names) in enumerate(selected, start=1):
             if progress_cb:
                 progress_cb(idx - 1, total_langs, f"Fetching {lang_name} ({lang_code}) cards from TCGdex...")
@@ -693,7 +709,9 @@ async def sync_tcgdex_all_languages(
 
                     set_info = detail.get("set") or {}
                     set_id = str(set_info.get("id") or card_id.split("-")[0])
-                    set_name = str(set_info.get("name") or set_id)
+                    raw_set_name = str(set_info.get("name") or set_id)
+                    en_name, native_name = translate_card_name(cname, lang_name)
+                    en_set_name, native_set_name = translate_set_name(raw_set_name, set_id, en_set_lookup)
                     series_name = str(set_info.get("_seriesName") or "")
                     local_id = str(detail.get("localId") or brief.get("localId") or "")
                     card_total = (set_info.get("cardCount") or {}).get("official") or ""
@@ -720,29 +738,38 @@ async def sync_tcgdex_all_languages(
                     if v_flags.get("holo"):
                         variant_specs.append(("Holo", "holo"))
                     if not variant_specs:
-                        ed_lbl, vk, _, _ = classify_variant("Standard", rarity, cname)
+                        ed_lbl, vk, _, _ = classify_variant("Standard", rarity, en_name)
                         variant_specs.append((ed_lbl, vk))
 
                     safe_card_id = str(card_id).replace("/", "-")
                     for ed_label, vk in variant_specs:
-                        # Check if this exact language+set+number+variant already exists
+                        # Check if this exact language+set+number+variant already exists (matching translated English set name too!)
                         match_key = (
                             existing_by_set_id.get((lang_name.lower(), set_id.lower(), base_num, vk))
-                            or existing_by_set_name.get((lang_name.lower(), slugify(set_name), base_num, vk))
+                            or existing_by_set_name.get((lang_name.lower(), slugify(en_set_name), base_num, vk))
+                            or existing_by_set_name.get((lang_name.lower(), slugify(raw_set_name), base_num, vk))
                         )
                         raw_p, p_src = _extract_tcgdex_price(detail, vk)
 
                         if match_key:
-                            # Enrich existing card with tcgdex_id, localized image (if missing/non-localized), and live raw price
-                            if img_url:
-                                c.execute("""
-                                    UPDATE catalog_cards
-                                    SET tcgdex_id = :tid,
-                                        image_url = CASE WHEN image_is_localized = 0 OR image_url = '' THEN :img ELSE image_url END,
-                                        image_is_localized = CASE WHEN :img != '' THEN 1 ELSE image_is_localized END,
-                                        artist = CASE WHEN artist = '' THEN :art ELSE artist END
-                                    WHERE catalog_key = :ck;
-                                """, {"tid": f"{lang_code}:{card_id}", "img": img_url, "art": artist, "ck": match_key})
+                            # Enrich existing card with tcgdex_id, native subtitle, localized image (if missing), and live raw price
+                            c.execute("""
+                                UPDATE catalog_cards
+                                SET tcgdex_id = :tid,
+                                    native_name = CASE WHEN native_name = '' AND :nname != '' THEN :nname ELSE native_name END,
+                                    native_set_name = CASE WHEN native_set_name = '' AND :nset != '' THEN :nset ELSE native_set_name END,
+                                    image_url = CASE WHEN (image_is_localized = 0 OR image_url = '') AND :img != '' THEN :img ELSE image_url END,
+                                    image_is_localized = CASE WHEN :img != '' THEN 1 ELSE image_is_localized END,
+                                    artist = CASE WHEN artist = '' AND :art != '' THEN :art ELSE artist END
+                                WHERE catalog_key = :ck;
+                            """, {
+                                "tid": f"{lang_code}:{card_id}",
+                                "nname": native_name,
+                                "nset": native_set_name,
+                                "img": img_url,
+                                "art": artist,
+                                "ck": match_key,
+                            })
                             if raw_p and match_key not in locked_keys:
                                 c.execute("""
                                     UPDATE catalog_cards
@@ -757,24 +784,46 @@ async def sync_tcgdex_all_languages(
                             # Do not create redundant EN/JA/S.CN duplicates if PokeCottage already owns that language+set+num
                             if lang_name in ("English", "Japanese", "S. Chinese"):
                                 exists_any = c.execute(
-                                    "SELECT 1 FROM catalog_cards WHERE language = ? AND (LOWER(set_id) = ? OR LOWER(set_name) = ?) AND base_number = ? AND variant_key = ? LIMIT 1;",
-                                    (lang_name, set_id.lower(), set_name.lower(), base_num, vk),
+                                    """SELECT catalog_key FROM catalog_cards
+                                       WHERE language = ?
+                                         AND (LOWER(set_id) = ? OR LOWER(set_name) = ? OR (release_year = ? AND release_year > 1995))
+                                         AND base_number = ?
+                                       LIMIT 1;""",
+                                    (lang_name, set_id.lower(), en_set_name.lower(), year, base_num),
                                 ).fetchone()
                                 if exists_any:
+                                    # Still enrich matched canonical card's price if unpriced
+                                    target_ck = exists_any["catalog_key"]
+                                    if raw_p and target_ck not in locked_keys:
+                                        c.execute("""
+                                            UPDATE catalog_cards
+                                            SET price_raw = COALESCE(price_raw, :pr),
+                                                price_source = COALESCE(NULLIF(price_source, ''), :ps),
+                                                price_updated_at = COALESCE(NULLIF(price_updated_at, ''), :ts),
+                                                native_name = CASE WHEN native_name = '' AND :nname != '' THEN :nname ELSE native_name END,
+                                                native_set_name = CASE WHEN native_set_name = '' AND :nset != '' THEN :nset ELSE native_set_name END
+                                            WHERE catalog_key = :ck AND price_manual_lock = 0;
+                                        """, {"pr": raw_p, "ps": p_src, "ts": now_iso, "nname": native_name, "nset": native_set_name, "ck": target_ck})
+                                        priced += 1
+                                    continue
+                                # Also skip imageless vintage JP/EN/S.CN stub entries from TCGdex when PokeCottage covers them
+                                if not img_url:
                                     continue
 
                             ck = f"tcgdex:{lang_code}:{safe_card_id}:{vk}"
                             callouts = get_visual_callouts(
-                                set_name=set_name,
+                                set_name=en_set_name,
                                 language=lang_name,
                                 edition=ed_label,
                                 variant_key=vk,
                             )
                             _upsert_catalog_card(c, {
                                 "catalog_key": ck,
-                                "card_group_key": f"{slugify(set_name)}-{base_num}-{lang_code}",
-                                "card_name": cname,
-                                "set_name": set_name,
+                                "card_group_key": f"{slugify(en_set_name)}-{base_num}-{lang_code}",
+                                "card_name": en_name,
+                                "native_name": native_name,
+                                "set_name": en_set_name,
+                                "native_set_name": native_set_name,
                                 "set_id": set_id,
                                 "series": series_name,
                                 "card_number": card_num,
@@ -797,7 +846,7 @@ async def sync_tcgdex_all_languages(
                                 "tcgdex_id": f"{lang_code}:{card_id}",
                                 "pricecharting_url": "",
                                 "tcgplayer_url": "",
-                                "notes": f"Official {lang_name} {set_name} release synced via TCGdex.",
+                                "notes": f"Official {lang_name} {en_set_name} release synced via TCGdex.",
                                 "source": "tcgdex",
                             })
                             if raw_p:
@@ -807,6 +856,7 @@ async def sync_tcgdex_all_languages(
                                 )
                                 priced += 1
                             existing_by_set_id[(lang_name.lower(), set_id.lower(), base_num, vk)] = ck
+                            existing_by_set_name[(lang_name.lower(), slugify(en_set_name), base_num, vk)] = ck
                             added += 1
 
     if progress_cb:
@@ -871,3 +921,126 @@ async def cache_images_locally(
                 progress_cb(i, total, f"Cached {downloaded}/{total} card scans locally...")
 
     return {"total": total, "downloaded": downloaded, "failed": failed}
+
+
+def translate_and_dedupe_existing_catalog(db_path: Optional[str] = None) -> Dict[str, int]:
+    """
+    Fast startup pass that:
+      1. Translates any already-synced foreign card titles & set names into readable English
+         (preserving the original native text in native_name / native_set_name).
+      2. Re-applies pixel-calibrated visual_callouts to every card.
+      3. Merges & removes duplicate TCGdex entries (e.g. imageless Japanese Leaders' Stadium duplicates)
+         into their canonical PokeCottage counterparts while preserving prices & Vault links.
+    """
+    stats = {"translated": 0, "callouts_updated": 0, "deduped": 0}
+    with get_conn(db_path) as conn:
+        c = conn.cursor()
+        rows = [dict(r) for r in c.execute("SELECT * FROM catalog_cards;").fetchall()]
+
+        # Pass 1: Translate foreign titles/sets + refresh calibrated visual callouts
+        for r in rows:
+            ck = r["catalog_key"]
+            en_name, nat_name = translate_card_name(r["card_name"], r["language"])
+            en_set, nat_set = translate_set_name(r["set_name"], r.get("set_id") or "")
+
+            final_native_name = r.get("native_name") or nat_name
+            final_native_set = r.get("native_set_name") or nat_set
+
+            new_callouts = json.dumps(get_visual_callouts(
+                set_name=en_set,
+                language=r["language"],
+                edition=r["edition"],
+                variant_key=r["variant_key"],
+                is_error=bool(r.get("is_error")),
+                error_description=r.get("error_description") or "",
+                pokecottage_id=r.get("pokecottage_id") or "",
+            ))
+
+            changed_text = (
+                en_name != r["card_name"]
+                or en_set != r["set_name"]
+                or final_native_name != (r.get("native_name") or "")
+                or final_native_set != (r.get("native_set_name") or "")
+            )
+            changed_callouts = new_callouts != (r.get("visual_callouts") or "[]")
+
+            if changed_text or changed_callouts:
+                c.execute("""
+                    UPDATE catalog_cards
+                    SET card_name = ?, native_name = ?, set_name = ?, native_set_name = ?, visual_callouts = ?
+                    WHERE catalog_key = ?;
+                """, (en_name, final_native_name, en_set, final_native_set, new_callouts, ck))
+                r["card_name"] = en_name
+                r["native_name"] = final_native_name
+                r["set_name"] = en_set
+                r["native_set_name"] = final_native_set
+                if changed_text:
+                    stats["translated"] += 1
+                if changed_callouts:
+                    stats["callouts_updated"] += 1
+
+        # Pass 2: Merge duplicate tcgdex: rows that overlap canonical pc:/curated:/csv_lang: entries
+        canonical_exact: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
+        canonical_loose: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+        canonical_year_num: Dict[Tuple[str, int, str], Dict[str, Any]] = {}
+
+        for r in rows:
+            if r["source"] != "tcgdex":
+                ll = r["language"].lower()
+                sn = slugify(r["set_name"])
+                bn = r["base_number"]
+                vk = r["variant_key"]
+                canonical_exact.setdefault((ll, sn, bn, vk), r)
+                canonical_loose.setdefault((ll, sn, bn), r)
+                if r.get("release_year") and int(r["release_year"]) > 1995 and bn:
+                    canonical_year_num.setdefault((ll, int(r["release_year"]), bn), r)
+
+        for r in rows:
+            if r["source"] != "tcgdex":
+                continue
+            ll = r["language"].lower()
+            sn = slugify(r["set_name"])
+            bn = r["base_number"]
+            vk = r["variant_key"]
+            has_img = bool((r.get("image_url") or "").strip() or (r.get("local_image") or "").strip())
+
+            target = canonical_exact.get((ll, sn, bn, vk))
+            if not target and ll in ("english", "japanese", "s. chinese"):
+                target = canonical_loose.get((ll, sn, bn))
+                if not target and not has_img and r.get("release_year"):
+                    target = canonical_year_num.get((ll, int(r["release_year"]), bn))
+
+            if target:
+                tkey = target["catalog_key"]
+                # Preserve any fetched prices, native titles, or tcgdex_id on the canonical card before removal
+                c.execute("""
+                    UPDATE catalog_cards
+                    SET price_raw = COALESCE(price_raw, ?),
+                        price_grade9 = COALESCE(price_grade9, ?),
+                        price_grade10 = COALESCE(price_grade10, ?),
+                        price_source = COALESCE(NULLIF(price_source, ''), ?),
+                        price_updated_at = COALESCE(NULLIF(price_updated_at, ''), ?),
+                        native_name = CASE WHEN native_name = '' AND ? != '' THEN ? ELSE native_name END,
+                        native_set_name = CASE WHEN native_set_name = '' AND ? != '' THEN ? ELSE native_set_name END,
+                        tcgdex_id = CASE WHEN tcgdex_id = '' AND ? != '' THEN ? ELSE tcgdex_id END
+                    WHERE catalog_key = ?;
+                """, (
+                    r.get("price_raw"), r.get("price_grade9"), r.get("price_grade10"),
+                    r.get("price_source"), r.get("price_updated_at"),
+                    r.get("native_name") or "", r.get("native_name") or "",
+                    r.get("native_set_name") or "", r.get("native_set_name") or "",
+                    r.get("tcgdex_id") or "", r.get("tcgdex_id") or "",
+                    tkey,
+                ))
+                c.execute("UPDATE vault_items SET catalog_key = ? WHERE catalog_key = ?;", (tkey, r["catalog_key"]))
+                c.execute("DELETE FROM catalog_cards WHERE catalog_key = ?;", (r["catalog_key"],))
+                stats["deduped"] += 1
+            elif ll in ("english", "japanese", "s. chinese") and not has_img:
+                # Drop imageless orphan TCGdex stubs for languages already fully cataloged by PokeCottage
+                # (only if no vault item links to it)
+                linked = c.execute("SELECT 1 FROM vault_items WHERE catalog_key = ? LIMIT 1;", (r["catalog_key"],)).fetchone()
+                if not linked:
+                    c.execute("DELETE FROM catalog_cards WHERE catalog_key = ?;", (r["catalog_key"],))
+                    stats["deduped"] += 1
+
+    return stats

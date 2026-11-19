@@ -29,6 +29,7 @@ from backend.catalog_builder import (
     seed_canonical_catalog,
     slugify,
     sync_tcgdex_all_languages,
+    translate_and_dedupe_existing_catalog,
 )
 from backend.db import (
     SCHEMA_VERSION,
@@ -55,9 +56,10 @@ SYNC_STATE: Dict[str, Dict[str, Any]] = {
 
 
 def bootstrap_database() -> None:
-    """Runs once at server startup: init schema, seed canonical catalog, migrate legacy vault once."""
+    """Runs once at server startup: init schema, seed canonical catalog, translate/dedupe, migrate legacy vault once."""
     init_schema()
     seed_canonical_catalog()
+    translate_and_dedupe_existing_catalog()
     migrate_legacy_vault_if_needed()
 
 
@@ -299,7 +301,9 @@ def api_get_catalog() -> Dict[str, Any]:
             "catalog_key": ck,
             "card_group_key": row["card_group_key"],
             "card_name": row["card_name"],
+            "native_name": row.get("native_name") or "",
             "set_name": row["set_name"],
+            "native_set_name": row.get("native_set_name") or "",
             "set_id": row.get("set_id") or "",
             "series": row.get("series") or "",
             "card_number": row.get("card_number") or "",

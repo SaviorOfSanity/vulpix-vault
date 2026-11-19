@@ -30,7 +30,7 @@ export function getFilteredCards(allCards) {
     if (binderFilters.variant !== "ALL" && c.variant_key !== binderFilters.variant) return false;
 
     if (q) {
-      const hay = `${c.card_name} ${c.set_name} ${c.card_number} ${c.language} ${c.edition} ${c.artist} ${c.error_description} ${c.release_year}`.toLowerCase();
+      const hay = `${c.card_name} ${c.native_name || ""} ${c.set_name} ${c.native_set_name || ""} ${c.card_number} ${c.language} ${c.edition} ${c.artist} ${c.error_description} ${c.release_year}`.toLowerCase();
       // Multi-term AND search ("gym challenge 37" matches all 3 tokens!)
       const tokens = q.split(/\s+/).filter(Boolean);
       for (const tok of tokens) {
@@ -146,7 +146,9 @@ export function renderBinderView(catalogData, onFilterChange) {
                   <div style="display:flex; align-items:center; gap:10px;">
                     <img class="table-thumb" src="${esc(c.image_url || "/assets/card-placeholder.svg")}" onerror="this.onerror=null;this.src='/assets/card-placeholder.svg';" loading="lazy" alt="" />
                     <div>
-                      <div style="font-weight:700; color:#f8fafc;">${esc(c.card_name)}</div>
+                      <div style="font-weight:700; color:#f8fafc;">
+                        ${esc(c.card_name)}${c.native_name ? `<span class="tile-native">(${esc(c.native_name)})</span>` : ""}
+                      </div>
                       ${c.is_error ? `<div style="font-size:0.7rem; color:#fca5a5;">⚠️ Error Card</div>` : ""}
                     </div>
                   </div>
@@ -190,8 +192,10 @@ export function renderBinderView(catalogData, onFilterChange) {
                   ${!c.image_is_localized ? `<span class="tile-img-tag ref-tag">Ref. Art</span>` : ""}
                 </div>
 
-                <div class="tile-title" title="${esc(c.card_name)}">${esc(c.card_name)}</div>
-                <div class="tile-set" title="${esc(c.set_name)} • ${esc(fmtCardNum(c.card_number))}">
+                <div class="tile-title" title="${esc(c.card_name)}${c.native_name ? ` (${esc(c.native_name)})` : ""}">
+                  ${esc(c.card_name)}${c.native_name ? `<span class="tile-native">${esc(c.native_name)}</span>` : ""}
+                </div>
+                <div class="tile-set" title="${esc(c.set_name)}${c.native_set_name ? ` (${esc(c.native_set_name)})` : ""} • ${esc(fmtCardNum(c.card_number))}">
                   ${esc(c.set_name)} • ${esc(fmtCardNum(c.card_number))}
                 </div>
 

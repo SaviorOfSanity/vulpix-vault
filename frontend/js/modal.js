@@ -208,9 +208,11 @@ function renderModal() {
         <button class="btn btn-sm" id="modal-next" ${currentIdx >= currentList.length - 1 ? "disabled" : ""}>Next →</button>
       </div>
       <div class="modal-title-block">
-        <h2 class="modal-title">${esc(card.card_name)}</h2>
+        <h2 class="modal-title">
+          ${esc(card.card_name)}${card.native_name ? `<span class="tile-native" style="font-size:0.88rem; font-weight:600;">(${esc(card.native_name)})</span>` : ""}
+        </h2>
         <div class="modal-subtitle">
-          ${esc(card.set_name)} • ${esc(fmtCardNum(card.card_number))} • ${esc(card.language)} • (${currentIdx + 1} / ${currentList.length})
+          ${esc(card.set_name)}${card.native_set_name ? ` (${esc(card.native_set_name)})` : ""} • ${esc(fmtCardNum(card.card_number))} • ${esc(card.language)} • (${currentIdx + 1} / ${currentList.length})
         </div>
       </div>
       <button class="btn btn-sm" id="modal-close">✕ Close</button>

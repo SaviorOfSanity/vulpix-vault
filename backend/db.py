@@ -11,7 +11,7 @@ import sqlite3
 from contextlib import contextmanager
 from typing import Iterator, Optional
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def get_project_root() -> str:
@@ -93,7 +93,9 @@ def init_schema(db_path: Optional[str] = None) -> None:
                 catalog_key TEXT PRIMARY KEY,
                 card_group_key TEXT NOT NULL,
                 card_name TEXT NOT NULL,
+                native_name TEXT DEFAULT '',
                 set_name TEXT NOT NULL,
+                native_set_name TEXT DEFAULT '',
                 set_id TEXT DEFAULT '',
                 series TEXT DEFAULT '',
                 card_number TEXT DEFAULT '',
@@ -170,6 +172,13 @@ def init_schema(db_path: Optional[str] = None) -> None:
         c.execute("CREATE INDEX IF NOT EXISTS idx_cat_pc ON catalog_cards(pokecottage_id);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_cat_tcgdex ON catalog_cards(tcgdex_id);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_vault_catkey ON vault_items(catalog_key);")
+
+        # Safe additive schema upgrade for existing v2 SQLite DBs
+        existing_cols = {row["name"] for row in c.execute("PRAGMA table_info(catalog_cards);").fetchall()}
+        if "native_name" not in existing_cols:
+            c.execute("ALTER TABLE catalog_cards ADD COLUMN native_name TEXT DEFAULT '';")
+        if "native_set_name" not in existing_cols:
+            c.execute("ALTER TABLE catalog_cards ADD COLUMN native_set_name TEXT DEFAULT '';")
 
         c.execute(
             "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('schema_version', ?);",

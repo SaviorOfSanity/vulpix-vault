@@ -920,6 +920,7 @@ html, body {
   display: inline-block;
   width: 100%;
   max-width: 350px;
+  margin-top: 8px;
   border-radius: 14px;
   overflow: visible;
 }
@@ -938,7 +939,15 @@ html, body {
   inset: 0;
   pointer-events: none;
   border-radius: 14px;
-  overflow: hidden;
+  overflow: visible;
+}
+
+.tile-native {
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-left: 5px;
 }
 
 .callout-box {
