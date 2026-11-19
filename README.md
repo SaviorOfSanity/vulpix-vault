@@ -1,121 +1,35 @@
-# 🦊 The Vulpix Vault
+# The Vulpix Vault v2
 
-> **Self-hosted Pokémon card market tracking application containerized with Docker Compose for Proxmox and Linux servers.**
-> Tracks your personal Vulpix collection, monitors Master Set completion, analyzes market sales trends, and sends real-time deal alerts via Gotify.
+A clean, fast, self-hosted **Vulpix Master Set Binder, Personal Vault & Auction Command Center** built with **FastAPI + Vanilla ES2022 + SQLite**.
 
----
-
-## 🌟 Key Features
-
-* **🏆 Personal Vault Tracker:** Manage your personal slab and raw collection (PSA, CGC, BGS, ARS, ACE, Raw singles). Tracks acquisition dates, cert numbers, and computes real-time unrealized gains and ROI %.
-* **📜 Master Set Completion Catalog:** Complete checklist for 240+ Vulpix cards with official card artwork scans, 1st Edition badges, variant indicators, and error tracking.
-* **🤖 Market Deal Radar:** Evaluates live eBay listings against comparable sales to identify high-conviction deals.
-* **🔔 Push Notifications:** Push alerts delivered directly to your phone or desktop with direct eBay links when deals are discovered.
-* **📈 Market Sales Explorer:** Interactive price history charts filtering historical sales by variant, grading company, and grade.
-* **🐳 Docker Compose Architecture:** Multi-container setup with independent Streamlit UI, background automated daemon, and persistent SQLite storage in WAL mode.
+Designed around the **last 10 minutes of an eBay auction**: open the app, type a set/number/language/error (`/`), and know in under 5 seconds:
+1. **Do I already own this exact card/variant** (and is my copy Grade 10 or upgradeable)?
+2. **What should I bid** (live market prices + shipping-adjusted max bid targets)?
+3. **Is the seller's listing accurate** (interactive visual error/stamp callout overlays directly on the card photo + graphical SVG variant badges + verification specs)?
 
 ---
 
-## 🏗️ Architecture & Services
+## Core Features (Phase 1)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Docker Compose Network                  │
-│                                                             │
-│  ┌──────────────────────┐        ┌───────────────────────┐  │
-│  │   vulpix-dashboard   │        │     vulpix-scraper    │  │
-│  │  (Streamlit UI :8501)│        │   (Automation Daemon) │  │
-│  └──────────┬───────────┘        └───────────┬───────────┘  │
-│             │                                │              │
-│             │    ┌──────────────────────┐    │              │
-│             └───►│   SQLite WAL Mode    │◄───┘              │
-│                  │ (/data/vulpix_vault) │                   │
-│                  └──────────────────────┘                   │
-│                                      │                      │
-│                                      ▼                      │
-│                          ┌───────────────────────┐          │
-│                          │     gotify/server     │          │
-│                          │   (Push Service :8070)│          │
-│                          └───────────────────────┘          │
-└─────────────────────────────────────────────────────────────┘
-```
+- **Canonical Multi-Language Master Set:** Deterministically compiled from PokeCottage's official 251-variant Vulpix dataset, curated Vulpix-themed promos (Poncho-wearing Pikachu `#037/SM-P` & `#038/SM-P`), documented error variants, authentic Playing Cards, and **all 14 official Pokémon TCG languages** via the open-source **TCGdex API v2** (with localized scans). Background cameos are excluded.
+- **Interactive Visual Error & Stamp Overlays:** Click any card tile directly to open the Auction Command modal. Error cards and key print marks (Base Set `"HP 50"` typo vs 4th Print `"50 HP"`, Blue Dot Error, Water Symbol Error, Ink Error, 1996 Japanese No Rarity Symbol, Gym Heroes Grey Stamp Error, Gym Challenge Gold `"W"` Stamp, Master Ball vs Poké Ball holo) render numbered highlight overlays directly on top of the card photo.
+- **Honest Live Market Pricing:** Fetches real Raw, Grade 9, and PSA 10 comps from **PriceCharting** and **TCGdex (TCGPlayer USD & Cardmarket EUR)** with transparent source & timestamp badges, manual comp locking, and zero fake placeholders.
+- **Personal Vault & Portfolio:** Track graded slabs and raw singles with exact grader, grade label, cert lookup links, purchase basis, live market value, ROI, and upgrade-candidate tracking. Preserves existing SQLite collection data seamlessly via one-time non-destructive migration.
+- **Zero-Build Single Container:** Lean `python:3.11-slim` Docker image running FastAPI + static ES module SPA on port `8501`.
 
 ---
 
-## 🚀 Quick Start & Deployment
+## Quick Start (Docker)
 
-### 1. Clone the Repository
 ```bash
-git clone https://github.com/SaviorOfSanity/vulpix-vault.git
-cd vulpix-vault
+git pull origin main
+docker compose up -d --build --remove-orphans
 ```
 
-### 2. Configure Environment Variables
-Copy `.env.example` to `.env`:
-```bash
-cp .env.example .env
-```
+Open `http://<your-server>:8501` in your browser.
 
-Review `.env` to configure your environment settings:
-```env
-# Gotify Server URL (Inside Docker: http://gotify:80 | Host: http://10.0.0.48:8070)
-GOTIFY_URL=http://gotify:80
-
-# SQLite Database Location
-DB_PATH=/data/vulpix_vault.db
-
-# Scrape Interval (Hours)
-SCRAPE_INTERVAL_HOURS=24
-```
-
-### 3. Launch Services
-```bash
-docker compose up -d --build
-```
-
----
-
-## 📱 Push Notifications Setup (Gotify)
-
-1. Open Gotify in your browser: `http://<your-server-ip>:8070`
-2. Log in with your admin credentials.
-3. Navigate to **Apps** $\rightarrow$ Click **Create Application**.
-4. Name your application (e.g. `Vulpix Vault Radar`) and click **Create**.
-5. Copy the generated application token and save it directly in the dashboard under **Tab 6 (System Controls & Gotify Sync)** or in your `.env` file.
-6. Click **Save & Test Connection** in Tab 6 to verify live push delivery.
-
----
-
-## 🖥️ Accessing the Dashboard
-
-Open your web browser and navigate to:
-```
-http://<your-server-ip>:8501
-```
-
-* **💼 My Vault & Portfolio:** View your owned cards, track portfolio ROI, and manage your slabs.
-* **📜 Master Set Checklist:** Browse the 240+ card catalog with high-res scans, 1st Edition badges, and price benchmarks.
-* **🎯 eBay Sniper Watchlist:** Monitor active auctions and set target auto-bid caps.
-* **🔥 AI Deal Radar:** Discover live discounted listings.
-* **⚙️ System Controls & Gotify Sync:** Manage database records, test push notifications, and configure settings.
-
----
-
-## 🛠️ Management Commands
-
-* **View live scraper logs:**
-  ```bash
-  docker compose logs -f vulpix-scraper
-  ```
-* **View dashboard logs:**
-  ```bash
-  docker compose logs -f vulpix-dashboard
-  ```
-* **Restart the stack:**
-  ```bash
-  docker compose restart
-  ```
-* **Stop all containers:**
-  ```bash
-  docker compose down
-  ```
+### First-Time Sync Steps (Optional, Recommended)
+In the **Sync & Pricing** tab:
+1. Click **Sync All 14 Official Languages** to pull localized scans and live TCGPlayer/Cardmarket prices across all 14 official TCG languages.
+2. Click **Price Unpriced Cards** to populate live Raw / Grade 9 / PSA 10 comps from PriceCharting.
+3. Click **Cache All Scans Locally** to store scans in `/data/cached_cards/` for instant offline browsing.
