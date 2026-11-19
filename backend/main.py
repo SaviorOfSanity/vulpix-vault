@@ -44,8 +44,10 @@ from backend.ebay_links import get_verification_links
 from backend.ebay_radar import (
     dispatch_radar_alerts,
     evaluate_deal,
+    evaluate_listing_ownership,
     expire_ended_listings,
     get_radar_config,
+    grade_rank,
     run_ebay_radar_scan,
     save_radar_config,
     seed_default_radar_queries,
@@ -766,6 +768,8 @@ def api_get_radar(include_dismissed: bool = False) -> Dict[str, Any]:
         vault_by_key.setdefault(vr["catalog_key"], []).append(vr)
 
     listings_out: List[Dict[str, Any]] = []
+    missing_matches = 0
+    upgrade_matches = 0
     needed_matches = 0
     hot_deals = 0
     ending_under_1h = 0
@@ -778,32 +782,25 @@ def api_get_radar(include_dismissed: bool = False) -> Dict[str, Any]:
         cat = cat_by_key.get(ck) if ck else None
 
         # Always re-evaluate deal tier against latest catalog prices so manual price edits reflect instantly
+        det_grader = lr.get("detected_grader") or "RAW"
+        det_grade = float(lr.get("detected_grade") or 0.0)
+        det_label = lr.get("detected_grade_label") or "Raw Single"
         comp, deal_tier, discount_pct = evaluate_deal(
             float(lr.get("total_cost") or 0.0),
-            lr.get("detected_grader") or "RAW",
-            float(lr.get("detected_grade") or 0.0),
-            lr.get("detected_grade_label") or "Raw Single",
+            det_grader,
+            det_grade,
+            det_label,
             cat,
         )
 
-        # Ownership status relative to user's Personal Vault
-        ownership_status = "UNMATCHED"
-        best_owned_badge = ""
-        if cat:
-            owned_list = vault_by_key.get(ck, [])
-            if not owned_list:
-                ownership_status = "MISSING"
-            else:
-                graded = [v for v in owned_list if not v["is_raw"]]
-                if graded:
-                    best = max(graded, key=lambda x: float(x["grade"] or 0.0))
-                    g = float(best["grade"] or 0.0)
-                    g_txt = int(g) if g == int(g) else g
-                    best_owned_badge = f"{best['grading_company']} {g_txt}"
-                    ownership_status = "OWNED_10" if g >= 10.0 else "UPGRADE"
-                else:
-                    best_owned_badge = "RAW"
-                    ownership_status = "UPGRADE"
+        # True grade-aware ownership comparison (e.g., RAW is NEVER an upgrade over CGC 8.5!)
+        ownership_status, best_owned_badge, is_needed = evaluate_listing_ownership(
+            vault_by_key.get(ck) if cat else None,
+            bool(cat),
+            det_grader,
+            det_grade,
+            det_label,
+        )
 
         secs_left: Optional[int] = None
         if lr.get("end_time"):
@@ -813,7 +810,10 @@ def api_get_radar(include_dismissed: bool = False) -> Dict[str, Any]:
             except Exception:
                 secs_left = None
 
-        is_needed = ownership_status in ("MISSING", "UPGRADE")
+        if ownership_status == "MISSING":
+            missing_matches += 1
+        elif ownership_status == "UPGRADE":
+            upgrade_matches += 1
         if is_needed:
             needed_matches += 1
         if deal_tier in ("SNIPE", "GOOD") and (is_needed or lr.get("is_watched")):
@@ -826,6 +826,8 @@ def api_get_radar(include_dismissed: bool = False) -> Dict[str, Any]:
             auctions_count += 1
         else:
             bin_count += 1
+
+        listing_rank = grade_rank(det_grader.upper() == "RAW", det_grade, det_label)
 
         listings_out.append({
             "ebay_item_id": lr["ebay_item_id"],
@@ -842,9 +844,10 @@ def api_get_radar(include_dismissed: bool = False) -> Dict[str, Any]:
             "seller_username": lr.get("seller_username") or "",
             "seller_feedback_pct": lr.get("seller_feedback_pct"),
             "condition": lr.get("condition") or "",
-            "detected_grader": lr.get("detected_grader") or "RAW",
-            "detected_grade": float(lr.get("detected_grade") or 0.0),
-            "detected_grade_label": lr.get("detected_grade_label") or "Raw Single",
+            "detected_grader": det_grader,
+            "detected_grade": det_grade,
+            "detected_grade_label": det_label,
+            "listing_grade_rank": listing_rank,
             "catalog_key": ck,
             "match_confidence": int(lr.get("match_confidence") or 0),
             "market_comp": comp,
@@ -869,6 +872,8 @@ def api_get_radar(include_dismissed: bool = False) -> Dict[str, Any]:
         "listings": listings_out,
         "summary": {
             "total_active": len(listings_out),
+            "missing_matches": missing_matches,
+            "upgrade_matches": upgrade_matches,
             "needed_matches": needed_matches,
             "hot_deals": hot_deals,
             "ending_under_1h": ending_under_1h,

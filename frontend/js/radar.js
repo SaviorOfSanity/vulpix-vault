@@ -13,9 +13,14 @@ import { openCardModal } from "./modal.js";
 import { esc, fmtCardNum, fmtUsd, showToast } from "./utils.js";
 
 const radarState = {
-  filter: "needed", // "needed" | "watched" | "deals" | "ending" | "all"
+  filter: "needed", // "needed" | "missing" | "upgrade" | "watched" | "all"
+  grade: "ALL",     // "ALL" | "psa10_cgc10" | "any10" | "psa10" | "cgc10" | "pristine10" | "graded9plus" | "graded" | "raw"
+  language: "ALL",
+  deal: "ALL",      // "ALL" | "hot" | "snipe" | "fair_or_better"
   buying: "ALL",    // "ALL" | "AUCTION" | "FIXED_PRICE"
-  sort: "ending",   // "ending" | "deal_desc" | "price_asc"
+  endingOnly: false,
+  maxPrice: "",
+  sort: "ending",   // "ending" | "deal_desc" | "price_asc" | "grade_desc"
   search: "",
   showTrackDrawer: false,
   showSetupDrawer: false,
@@ -83,18 +88,52 @@ export function updateRadarScanStatus(scanState) {
   if (btn) btn.disabled = Boolean(scanState.running);
 }
 
+function matchesGradeFilter(it, gf) {
+  if (!gf || gf === "ALL") return true;
+  const g = (it.detected_grader || "RAW").toUpperCase();
+  const num = Number(it.detected_grade || 0);
+  const lbl = (it.detected_grade_label || "").toLowerCase();
+  const isRaw = g === "RAW" || num <= 0;
+
+  if (gf === "psa10_cgc10") return !isRaw && num >= 10 && (g === "PSA" || g === "CGC");
+  if (gf === "any10") return !isRaw && num >= 10;
+  if (gf === "psa10") return !isRaw && num >= 10 && g === "PSA";
+  if (gf === "cgc10") return !isRaw && num >= 10 && g === "CGC";
+  if (gf === "pristine10") return !isRaw && num >= 10 && (lbl.includes("pristine") || lbl.includes("black label"));
+  if (gf === "graded9plus") return !isRaw && num >= 9;
+  if (gf === "graded") return !isRaw;
+  if (gf === "raw") return isRaw;
+  return true;
+}
+
 function getFilteredListings(allListings) {
   const q = radarState.search.trim().toLowerCase();
+  const maxP = radarState.maxPrice !== "" && !Number.isNaN(Number(radarState.maxPrice)) ? Number(radarState.maxPrice) : null;
+
   let list = allListings.filter((it) => {
     const isNeeded = it.ownership_status === "MISSING" || it.ownership_status === "UPGRADE";
     if (radarState.filter === "needed" && !isNeeded && !it.is_watched) return false;
+    if (radarState.filter === "missing" && it.ownership_status !== "MISSING") return false;
+    if (radarState.filter === "upgrade" && it.ownership_status !== "UPGRADE") return false;
     if (radarState.filter === "watched" && !it.is_watched) return false;
-    if (radarState.filter === "deals" && !["SNIPE", "GOOD"].includes(it.deal_tier)) return false;
-    if (radarState.filter === "ending") {
+
+    if (!matchesGradeFilter(it, radarState.grade)) return false;
+
+    if (radarState.language !== "ALL") {
+      if ((it.matched_language || "Unmatched") !== radarState.language) return false;
+    }
+
+    if (radarState.deal === "hot" && !["SNIPE", "GOOD"].includes(it.deal_tier)) return false;
+    if (radarState.deal === "snipe" && it.deal_tier !== "SNIPE") return false;
+    if (radarState.deal === "fair_or_better" && !["SNIPE", "GOOD", "FAIR"].includes(it.deal_tier)) return false;
+
+    if (radarState.endingOnly) {
       if (!it.end_time) return false;
       const ms = Date.parse(it.end_time) - Date.now();
       if (Number.isNaN(ms) || ms <= 0 || ms > 3 * 3600 * 1000) return false;
     }
+
+    if (maxP !== null && maxP > 0 && Number(it.total_cost || 0) > maxP) return false;
 
     if (radarState.buying === "AUCTION" && !it.buying_option.includes("AUCTION")) return false;
     if (radarState.buying === "FIXED_PRICE" && it.buying_option !== "FIXED_PRICE") return false;
@@ -113,8 +152,10 @@ function getFilteredListings(allListings) {
     list.sort((a, b) => (b.discount_pct ?? -999) - (a.discount_pct ?? -999) || a.total_cost - b.total_cost);
   } else if (radarState.sort === "price_asc") {
     list.sort((a, b) => a.total_cost - b.total_cost);
+  } else if (radarState.sort === "grade_desc") {
+    list.sort((a, b) => (b.listing_grade_rank ?? 0) - (a.listing_grade_rank ?? 0) || a.total_cost - b.total_cost);
   } else {
-    // Ending soonest (watched first if no end_time; auctions with soonest end_time on top)
+    // Ending soonest (auctions with soonest end_time on top)
     list.sort((a, b) => {
       const ta = a.end_time ? Date.parse(a.end_time) : Number.MAX_SAFE_INTEGER;
       const tb = b.end_time ? Date.parse(b.end_time) : Number.MAX_SAFE_INTEGER;
@@ -145,10 +186,13 @@ function ownershipBadgeHtml(item) {
     return `<span class="status-pill status-missing">NEEDED — MISSING</span>`;
   }
   if (item.ownership_status === "UPGRADE") {
-    return `<span class="status-pill status-upgrade">UPGRADE (Own ${esc(item.best_owned_badge)})</span>`;
+    const targetLbl = item.detected_grader === "RAW"
+      ? "RAW"
+      : `${item.detected_grader} ${item.detected_grade === Math.floor(item.detected_grade) ? item.detected_grade : item.detected_grade}`;
+    return `<span class="status-pill status-upgrade">UPGRADE → ${esc(targetLbl)} (Own ${esc(item.best_owned_badge)})</span>`;
   }
-  if (item.ownership_status === "OWNED_10") {
-    return `<span class="status-pill status-owned">OWNED • ${esc(item.best_owned_badge)}</span>`;
+  if (item.ownership_status === "OWNED_EQUAL_OR_BETTER" || item.ownership_status === "OWNED_10") {
+    return `<span class="status-pill status-owned" title="Your Vault copy is already equal or higher grade">OWNED • ${esc(item.best_owned_badge)}</span>`;
   }
   return `<span class="status-pill" style="background:rgba(148,163,184,0.14); color:#cbd5e1; border-color:rgba(148,163,184,0.35);">UNMATCHED</span>`;
 }
@@ -166,6 +210,17 @@ export function renderRadarView(radarData, catalogData, onTriggerPoll, onRefresh
   const allListings = radarData.listings || [];
   const catalogCards = catalogData?.cards || [];
   const filtered = getFilteredListings(allListings);
+
+  // Dynamic language options present in active listings
+  const langCounts = {};
+  for (const it of allListings) {
+    const l = it.matched_language || "Unmatched";
+    langCounts[l] = (langCounts[l] || 0) + 1;
+  }
+  const langOptionsHtml = Object.entries(langCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([l, cnt]) => `<option value="${esc(l)}" ${radarState.language === l ? "selected" : ""}>${esc(l)} (${cnt})</option>`)
+    .join("");
 
   const apiPill = cfg.ebay_configured
     ? `<span class="status-pill status-owned">eBay API Connected</span>`
@@ -512,9 +567,9 @@ export function renderRadarView(radarData, catalogData, onTriggerPoll, onRefresh
 
       <div class="hero-kpis">
         <div class="kpi-tile highlight-emerald">
-          <div class="kpi-label">Needed Matches</div>
+          <div class="kpi-label">Needed &amp; True Upgrades</div>
           <div class="kpi-val" style="color:#34d399;">${s.needed_matches ?? 0}</div>
-          <div class="kpi-sub">Missing or &lt;Grade 10 upgrades</div>
+          <div class="kpi-sub">${s.missing_matches ?? 0} missing • ${s.upgrade_matches ?? 0} higher-grade upgrades</div>
         </div>
         <div class="kpi-tile highlight-gold">
           <div class="kpi-label">Hot Deals (≥15% Off)</div>
@@ -532,6 +587,28 @@ export function renderRadarView(radarData, catalogData, onTriggerPoll, onRefresh
           <div class="kpi-sub">Alerted in final ${cfg.alert_ending_soon_min ?? 20} min</div>
         </div>
       </div>
+
+      <!-- 1-Click Collector Presets -->
+      <div class="lang-strip" id="radar-presets">
+        <button class="lang-chip ${radarState.filter === "missing" && radarState.grade === "psa10_cgc10" ? "active" : ""}" data-preset="missing_10">
+          🎯 Missing PSA 10 / CGC 10
+        </button>
+        <button class="lang-chip ${radarState.filter === "needed" && radarState.grade === "any10" ? "active" : ""}" data-preset="needed_10">
+          💎 Needed Grade 10s (Missing + Upgrades)
+        </button>
+        <button class="lang-chip ${radarState.filter === "upgrade" && radarState.grade === "graded" ? "active" : ""}" data-preset="true_upgrades">
+          ⬆️ True Slab Upgrades Only
+        </button>
+        <button class="lang-chip ${radarState.deal === "hot" && radarState.filter === "needed" ? "active" : ""}" data-preset="hot_deals">
+          🔥 Needed Hot Deals (≥15% Off)
+        </button>
+        <button class="lang-chip ${radarState.endingOnly ? "active" : ""}" data-preset="ending_soon">
+          ⏱ Ending &lt; 3 Hours
+        </button>
+        <button class="lang-chip" data-preset="reset">
+          ↺ Reset Filters
+        </button>
+      </div>
     </section>
 
     ${trackDrawerHtml}
@@ -539,29 +616,65 @@ export function renderRadarView(radarData, catalogData, onTriggerPoll, onRefresh
 
     <div class="toolbar">
       <div class="segmented" id="radar-filter-seg">
-        <button class="seg-btn ${radarState.filter === "needed" ? "active" : ""}" data-rf="needed">Needed &amp; Watched</button>
+        <button class="seg-btn ${radarState.filter === "needed" ? "active" : ""}" data-rf="needed">Needed &amp; Upgrades (${s.needed_matches ?? 0})</button>
+        <button class="seg-btn ${radarState.filter === "missing" ? "active" : ""}" data-rf="missing">Missing Only (${s.missing_matches ?? 0})</button>
+        <button class="seg-btn ${radarState.filter === "upgrade" ? "active" : ""}" data-rf="upgrade">True Upgrades (${s.upgrade_matches ?? 0})</button>
         <button class="seg-btn ${radarState.filter === "watched" ? "active" : ""}" data-rf="watched">Watched ★ (${s.watched_count ?? 0})</button>
-        <button class="seg-btn ${radarState.filter === "deals" ? "active" : ""}" data-rf="deals">Hot Deals (${s.hot_deals ?? 0})</button>
-        <button class="seg-btn ${radarState.filter === "ending" ? "active" : ""}" data-rf="ending">Ending &lt;3h</button>
         <button class="seg-btn ${radarState.filter === "all" ? "active" : ""}" data-rf="all">All Active (${s.total_active ?? 0})</button>
       </div>
 
       <div class="toolbar-controls">
-        <input id="radar-search-in" type="search" placeholder="Filter listings..." value="${esc(radarState.search)}"
-               style="background:#0c101b; border:1px solid rgba(255,255,255,0.16); color:#f8fafc; border-radius:8px; padding:6px 10px; font-size:0.8rem; width:175px;" />
+        <select class="ctrl-select" id="radar-grade-sel" aria-label="Filter by grade">
+          <option value="ALL" ${radarState.grade === "ALL" ? "selected" : ""}>All Grades (Slabs + Raw)</option>
+          <option value="psa10_cgc10" ${radarState.grade === "psa10_cgc10" ? "selected" : ""}>PSA 10 or CGC 10</option>
+          <option value="any10" ${radarState.grade === "any10" ? "selected" : ""}>Any Grade 10 (PSA / CGC / BGS / ARS)</option>
+          <option value="psa10" ${radarState.grade === "psa10" ? "selected" : ""}>PSA 10 Only</option>
+          <option value="cgc10" ${radarState.grade === "cgc10" ? "selected" : ""}>CGC 10 / Pristine Only</option>
+          <option value="pristine10" ${radarState.grade === "pristine10" ? "selected" : ""}>Pristine 10 / Black Label</option>
+          <option value="graded9plus" ${radarState.grade === "graded9plus" ? "selected" : ""}>Graded 9+ (9, 9.5, 10)</option>
+          <option value="graded" ${radarState.grade === "graded" ? "selected" : ""}>Any Graded Slab (No Raw)</option>
+          <option value="raw" ${radarState.grade === "raw" ? "selected" : ""}>Raw Singles Only</option>
+        </select>
 
-        <select class="ctrl-select" id="radar-buying-sel">
+        <select class="ctrl-select" id="radar-lang-sel" aria-label="Filter by language">
+          <option value="ALL" ${radarState.language === "ALL" ? "selected" : ""}>All Languages</option>
+          ${langOptionsHtml}
+        </select>
+
+        <select class="ctrl-select" id="radar-deal-sel" aria-label="Filter by deal tier">
+          <option value="ALL" ${radarState.deal === "ALL" ? "selected" : ""}>All Prices</option>
+          <option value="hot" ${radarState.deal === "hot" ? "selected" : ""}>Hot Deals (≥15% Off)</option>
+          <option value="snipe" ${radarState.deal === "snipe" ? "selected" : ""}>Snipes Only (≥30% Off)</option>
+          <option value="fair_or_better" ${radarState.deal === "fair_or_better" ? "selected" : ""}>Fair or Better (≤ Comp)</option>
+        </select>
+
+        <select class="ctrl-select" id="radar-buying-sel" aria-label="Filter by format">
           <option value="ALL" ${radarState.buying === "ALL" ? "selected" : ""}>All Formats</option>
           <option value="AUCTION" ${radarState.buying === "AUCTION" ? "selected" : ""}>Auctions Only</option>
           <option value="FIXED_PRICE" ${radarState.buying === "FIXED_PRICE" ? "selected" : ""}>Buy It Now</option>
         </select>
 
-        <select class="ctrl-select" id="radar-sort-sel">
+        <input id="radar-max-price" type="number" min="1" step="5" placeholder="Max $" value="${esc(radarState.maxPrice)}"
+               style="background:#0c101b; border:1px solid rgba(255,255,255,0.16); color:#f8fafc; border-radius:8px; padding:6px 8px; font-size:0.8rem; width:82px;" />
+
+        <input id="radar-search-in" type="search" placeholder="Filter listings..." value="${esc(radarState.search)}"
+               style="background:#0c101b; border:1px solid rgba(255,255,255,0.16); color:#f8fafc; border-radius:8px; padding:6px 10px; font-size:0.8rem; width:165px;" />
+
+        <select class="ctrl-select" id="radar-sort-sel" aria-label="Sort listings">
           <option value="ending" ${radarState.sort === "ending" ? "selected" : ""}>Ending Soonest</option>
           <option value="deal_desc" ${radarState.sort === "deal_desc" ? "selected" : ""}>Best Deal % Off</option>
           <option value="price_asc" ${radarState.sort === "price_asc" ? "selected" : ""}>Lowest Total Cost</option>
+          <option value="grade_desc" ${radarState.sort === "grade_desc" ? "selected" : ""}>Highest Grade First</option>
         </select>
       </div>
+    </div>
+
+    <div class="results-meta">
+      <div>Showing <strong>${filtered.length}</strong> of <strong>${allListings.length}</strong> active eBay listings</div>
+      <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="checkbox" id="radar-ending-chk" ${radarState.endingOnly ? "checked" : ""} />
+        Ending within 3 hours only
+      </label>
     </div>
 
     ${listingsHtml}
@@ -697,6 +810,43 @@ export function renderRadarView(radarData, catalogData, onTriggerPoll, onRefresh
     } catch (err) { showToast(err.message, "err"); }
   });
 
+  // 1-Click Collector Presets
+  container.querySelectorAll("#radar-presets [data-preset]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const p = btn.dataset.preset;
+      radarState.endingOnly = false;
+      radarState.deal = "ALL";
+      if (p === "missing_10") {
+        radarState.filter = "missing";
+        radarState.grade = "psa10_cgc10";
+      } else if (p === "needed_10") {
+        radarState.filter = "needed";
+        radarState.grade = "any10";
+      } else if (p === "true_upgrades") {
+        radarState.filter = "upgrade";
+        radarState.grade = "graded";
+      } else if (p === "hot_deals") {
+        radarState.filter = "needed";
+        radarState.grade = "ALL";
+        radarState.deal = "hot";
+      } else if (p === "ending_soon") {
+        radarState.filter = "needed";
+        radarState.endingOnly = true;
+      } else if (p === "reset") {
+        radarState.filter = "needed";
+        radarState.grade = "ALL";
+        radarState.language = "ALL";
+        radarState.deal = "ALL";
+        radarState.buying = "ALL";
+        radarState.endingOnly = false;
+        radarState.maxPrice = "";
+        radarState.search = "";
+        radarState.sort = "ending";
+      }
+      renderRadarView(radarData, catalogData, onTriggerPoll, onRefresh);
+    });
+  });
+
   // Filters & sort
   container.querySelectorAll("#radar-filter-seg .seg-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -705,9 +855,40 @@ export function renderRadarView(radarData, catalogData, onTriggerPoll, onRefresh
     });
   });
 
+  container.querySelector("#radar-grade-sel")?.addEventListener("change", (e) => {
+    radarState.grade = e.target.value;
+    renderRadarView(radarData, catalogData, onTriggerPoll, onRefresh);
+  });
+
+  container.querySelector("#radar-lang-sel")?.addEventListener("change", (e) => {
+    radarState.language = e.target.value;
+    renderRadarView(radarData, catalogData, onTriggerPoll, onRefresh);
+  });
+
+  container.querySelector("#radar-deal-sel")?.addEventListener("change", (e) => {
+    radarState.deal = e.target.value;
+    renderRadarView(radarData, catalogData, onTriggerPoll, onRefresh);
+  });
+
   container.querySelector("#radar-buying-sel")?.addEventListener("change", (e) => {
     radarState.buying = e.target.value;
     renderRadarView(radarData, catalogData, onTriggerPoll, onRefresh);
+  });
+
+  container.querySelector("#radar-ending-chk")?.addEventListener("change", (e) => {
+    radarState.endingOnly = e.target.checked;
+    renderRadarView(radarData, catalogData, onTriggerPoll, onRefresh);
+  });
+
+  container.querySelector("#radar-max-price")?.addEventListener("input", (e) => {
+    radarState.maxPrice = e.target.value;
+    const caret = e.target.selectionStart ?? radarState.maxPrice.length;
+    renderRadarView(radarData, catalogData, onTriggerPoll, onRefresh);
+    const nextIn = container.querySelector("#radar-max-price");
+    if (nextIn) {
+      nextIn.focus();
+      try { nextIn.setSelectionRange(caret, caret); } catch { /* number input */ }
+    }
   });
 
   container.querySelector("#radar-sort-sel")?.addEventListener("change", (e) => {

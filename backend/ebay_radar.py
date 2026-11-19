@@ -514,6 +514,67 @@ def match_listing_to_catalog(
     return None, 0
 
 
+def grade_rank(is_raw: bool, grade: float, grade_label: str = "") -> float:
+    """Numeric condition/grade rank so we only mark a listing an UPGRADE when it beats what you already own."""
+    if is_raw or float(grade or 0.0) <= 0.0:
+        return 0.0
+    g = float(grade)
+    if g >= 10.0:
+        lbl = (grade_label or "").lower()
+        if "black label" in lbl:
+            return 11.0
+        if "pristine" in lbl:
+            return 10.5
+        return 10.0
+    return g
+
+
+def evaluate_listing_ownership(
+    owned_items: Optional[List[Dict[str, Any]]],
+    has_match: bool,
+    listing_grader: str,
+    listing_grade: float,
+    listing_grade_label: str = "",
+) -> Tuple[str, str, bool]:
+    """
+    Compares a specific eBay listing's grade against the user's best owned copy of that card.
+    Returns (ownership_status, best_owned_badge, is_needed_or_upgrade).
+      - 'UNMATCHED': not linked to a catalog card
+      - 'MISSING': user owns 0 copies (needed!)
+      - 'UPGRADE': listing is STRICTLY higher grade/tier than user's best owned copy (true upgrade!)
+      - 'OWNED_EQUAL_OR_BETTER': user already owns an equal or better copy (e.g., own CGC 8.5, listing is RAW or PSA 8)
+    """
+    if not has_match:
+        return "UNMATCHED", "", False
+    if not owned_items:
+        return "MISSING", "", True
+
+    def _item_rank(v: Dict[str, Any]) -> float:
+        return grade_rank(bool(v.get("is_raw")), float(v.get("grade") or 0.0), str(v.get("grade_label") or ""))
+
+    best = max(owned_items, key=_item_rank)
+    owned_rank = _item_rank(best)
+    if bool(best.get("is_raw")) or owned_rank <= 0.0:
+        best_badge = "RAW"
+    else:
+        g = float(best.get("grade") or 0.0)
+        g_txt = int(g) if g == int(g) else g
+        lbl = str(best.get("grade_label") or "").lower()
+        if "black label" in lbl:
+            best_badge = f"{best['grading_company']} 10 Black"
+        elif "pristine" in lbl:
+            best_badge = f"{best['grading_company']} 10 Pristine"
+        else:
+            best_badge = f"{best['grading_company']} {g_txt}"
+
+    listing_is_raw = (listing_grader or "RAW").upper() == "RAW" or float(listing_grade or 0.0) <= 0.0
+    listing_rank = grade_rank(listing_is_raw, float(listing_grade or 0.0), listing_grade_label)
+
+    if listing_rank > owned_rank:
+        return "UPGRADE", best_badge, True
+    return "OWNED_EQUAL_OR_BETTER", best_badge, False
+
+
 def evaluate_deal(
     total_cost: float,
     grader: str,
@@ -892,21 +953,25 @@ async def dispatch_radar_alerts(db_path: Optional[str] = None) -> int:
             WHERE l.is_active = 1 AND l.is_dismissed = 0 AND l.alert_sent = 0;
         """).fetchall()]
 
-        vault_rows = conn.execute("SELECT catalog_key, is_raw, grade FROM vault_items WHERE catalog_key IS NOT NULL;").fetchall()
+        vault_rows = [dict(r) for r in conn.execute(
+            "SELECT catalog_key, is_raw, grading_company, grade, grade_label FROM vault_items WHERE catalog_key IS NOT NULL;"
+        ).fetchall()]
 
-    best_owned: Dict[str, float] = {}
+    vault_by_key: Dict[str, List[Dict[str, Any]]] = {}
     for vr in vault_rows:
-        ck = vr["catalog_key"]
-        g = 0.0 if vr["is_raw"] else float(vr["grade"] or 0.0)
-        best_owned[ck] = max(best_owned.get(ck, -1.0), g)
+        vault_by_key.setdefault(vr["catalog_key"], []).append(vr)
 
     sent_count = 0
     for item in candidates:
         ck = item.get("catalog_key")
         is_watched = bool(item.get("is_watched"))
-        is_missing = bool(ck and ck not in best_owned)
-        needs_upgrade = bool(ck and ck in best_owned and best_owned[ck] < 10.0)
-        is_needed = is_missing or needs_upgrade
+        _, _, is_needed = evaluate_listing_ownership(
+            vault_by_key.get(ck) if ck else None,
+            bool(ck),
+            item.get("detected_grader") or "RAW",
+            float(item.get("detected_grade") or 0.0),
+            item.get("detected_grade_label") or "",
+        )
 
         if needed_only and not is_needed and not is_watched:
             continue
